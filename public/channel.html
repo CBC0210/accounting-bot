@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>記帳 - Channel Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f0f23;
+      --card: #1a1a2e;
+      --accent: #00d9ff;
+      --text: #e0e0e0;
+      --muted: #888;
+      --green: #4ade80;
+      --red: #f87171;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+    }
+    h1 {
+      font-size: 1.5rem;
+      color: var(--accent);
+    }
+    .channel-id {
+      background: var(--card);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: monospace;
+      color: var(--muted);
+    }
+    
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      border: 1px solid #2a2a4a;
+    }
+    
+    .balance {
+      font-size: 3rem;
+      text-align: center;
+      font-weight: bold;
+    }
+    .balance.positive { color: var(--green); }
+    .balance.negative { color: var(--red); }
+    
+    .balance-label {
+      text-align: center;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .stat {
+      background: #0d0d1a;
+      padding: 16px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: bold;
+    }
+    .stat-value.income { color: var(--green); }
+    .stat-value.expense { color: var(--red); }
+    .stat-label { color: var(--muted); font-size: 0.9rem; }
+    
+    .transactions { list-style: none; }
+    .transaction {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    .transaction:last-child { border-bottom: none; }
+    
+    .t-info { flex: 1; }
+    .t-category {
+      background: #0d0d1a;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: var(--accent);
+    }
+    .t-note { color: var(--text); margin-top: 4px; }
+    .t-time { color: var(--muted); font-size: 0.8rem; }
+    
+    .t-amount {
+      font-weight: bold;
+      font-size: 1.1rem;
+    }
+    .t-amount.income { color: var(--green); }
+    .t-amount.expense { color: var(--red); }
+    
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--muted);
+    }
+    
+    .error {
+      background: #3a1a1a;
+      border: 1px solid var(--red);
+      padding: 16px;
+      border-radius: 8px;
+      color: var(--red);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🦑 記帳 Dashboard</h1>
+      <span class="channel-id" id="channelId">載入中...</span>
+    </header>
+    
+    <div id="app">
+      <div class="loading">載入中...</div>
+    </div>
+  </div>
+  
+  <script>
+    const channelId = window.location.pathname.replace('/', '');
+    document.getElementById('channelId').textContent = channelId;
+    
+    async function loadData() {
+      try {
+        const res = await fetch(`/api/channel/${channelId}`);
+        const data = await res.json();
+        
+        if (data.error) {
+          document.getElementById('app').innerHTML = `<div class="error">錯誤: ${data.error}</div>`;
+          return;
+        }
+        
+        const balanceClass = data.balance >= 0 ? 'positive' : 'negative';
+        const balancePrefix = data.balance >= 0 ? '+' : '';
+        
+        const incomeTotal = data.transactions
+          .filter(t => t.type === 'income')
+          .reduce((sum, t) => sum + t.amount, 0);
+        
+        const expenseTotal = data.transactions
+          .filter(t => t.type === 'expense')
+          .reduce((sum, t) => sum + t.amount, 0);
+        
+        let transactionsHtml = '';
+        if (data.transactions.length === 0) {
+          transactionsHtml = '<div class="loading">還沒有記錄</div>';
+        } else {
+          data.transactions.forEach(t => {
+            const amountPrefix = t.type === 'income' ? '+' : '-';
+            const date = new Date(t.timestamp).toLocaleString('zh-TW');
+            transactionsHtml += `
+              <li class="transaction">
+                <div class="t-info">
+                  <span class="t-category">${t.category}</span>
+                  <div class="t-note">${t.note || '-'}</div>
+                  <div class="t-time">${date}</div>
+                </div>
+                <div class="t-amount ${t.type}">${amountPrefix}NT$ ${t.amount}</div>
+              </li>
+            `;
+          });
+        }
+        
+        document.getElementById('app').innerHTML = `
+          <div class="card">
+            <div class="balance-label">目前餘額</div>
+            <div class="balance ${balanceClass}">${balancePrefix}NT$ ${data.balance.toLocaleString()}</div>
+            <div class="stats">
+              <div class="stat">
+                <div class="stat-value income">+NT$ ${incomeTotal.toLocaleString()}</div>
+                <div class="stat-label">收入</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value expense">-NT$ ${expenseTotal.toLocaleString()}</div>
+                <div class="stat-label">支出</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <h2 style="margin-bottom: 16px;">📝 最近記錄</h2>
+            <ul class="transactions">
+              ${transactionsHtml}
+            </ul>
+          </div>
+        `;
+      } catch (error) {
+        document.getElementById('app').innerHTML = `<div class="error">載入失敗: ${error.message}</div>`;
+      }
+    }
+    
+    loadData();
+  </script>
+</body>
+</html>

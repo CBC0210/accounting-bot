@@ -1,3 +1,27 @@
+# 環境變數
 .env
-.env.*
+.env.local
+.env.*.local
 !.env.example
+
+# 依賴
+node_modules/
+
+# 資料庫
+data/
+*.db
+*.sqlite
+
+# 日誌
+logs/
+*.log
+
+# 系統
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
