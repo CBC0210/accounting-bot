@@ -5,6 +5,43 @@ const path = require('path');
 let db;
 let dbPath;
 
+function hasColumn(tableName, columnName) {
+  const stmt = db.prepare(`PRAGMA table_info(${tableName})`);
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    if (row.name === columnName) {
+      stmt.free();
+      return true;
+    }
+  }
+  stmt.free();
+  return false;
+}
+
+function migrateSchema() {
+  if (!hasColumn('channel_settings', 'setup_state')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN setup_state TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'setup_user_id')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN setup_user_id TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'updated_at')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP`);
+  }
+  if (!hasColumn('channel_settings', 'reminder_time')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN reminder_time TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'split_books')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN split_books INTEGER DEFAULT 0`);
+  }
+  if (!hasColumn('channel_settings', 'setup_completed_at')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN setup_completed_at TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'user_gender')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN user_gender TEXT`);
+  }
+}
+
 async function initDatabase() {
   const SQL = await initSqlJs();
   
@@ -45,6 +82,13 @@ async function initDatabase() {
       name TEXT,
       budget REAL DEFAULT 0,
       type TEXT DEFAULT 'personal',
+      setup_state TEXT,
+      setup_user_id TEXT,
+      reminder_time TEXT,
+      split_books INTEGER DEFAULT 0,
+      setup_completed_at TEXT,
+      user_gender TEXT,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -56,6 +100,8 @@ async function initDatabase() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  migrateSchema();
   
   // 儲存資料庫
   saveDatabase();

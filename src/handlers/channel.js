@@ -1,4 +1,5 @@
 const { getDatabase } = require('../db/database');
+const { EmbedBuilder } = require('discord.js');
 
 function getChannelIdFromChannel(channel) {
   return channel.id;
@@ -8,9 +9,7 @@ async function sendChannelInfoMessage(channel) {
   const channelId = channel.id;
   const dashboardUrl = `https://accounting.bc-verse.com/${channelId}`;
   
-  const { MessageEmbed } = require('discord.js');
-  
-  const embed = new MessageEmbed()
+  const embed = new EmbedBuilder()
     .setColor(0x00d9ff)
     .setTitle('🦑 記帳機器人')
     .setDescription('歡迎使用記帳機器人！')

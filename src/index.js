@@ -15,10 +15,23 @@ const client = new Client({
 
 // 處理斜線指令
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
   console.log(`收到指令: ${interaction.commandName}`);
-  if (!interaction.isCommand()) return;
-  
-  await handleSlashCommand(interaction);
+
+  try {
+    await handleSlashCommand(interaction);
+  } catch (error) {
+    console.error('處理指令失敗:', error);
+    try {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({ content: '指令執行失敗，請稍後再試。', ephemeral: true });
+      } else {
+        await interaction.reply({ content: '指令執行失敗，請稍後再試。', ephemeral: true });
+      }
+    } catch (replyError) {
+      console.error('回覆錯誤訊息失敗:', replyError);
+    }
+  }
 });
 
 // 一般訊息

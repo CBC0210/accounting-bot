@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { all } = require('./db/database');
+const { initDatabase, all, get } = require('./db/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -76,6 +76,16 @@ app.get('/api/user/:userId/balance', (req, res) => {
   res.json({ userId, balance });
 });
 
-app.listen(PORT, () => {
-  console.log(`🌐 Dashboard server running on port ${PORT}`);
-});
+async function startWebServer() {
+  try {
+    await initDatabase();
+    app.listen(PORT, () => {
+      console.log(`🌐 Dashboard server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('❌ Dashboard 啟動失敗:', error);
+    process.exit(1);
+  }
+}
+
+startWebServer();

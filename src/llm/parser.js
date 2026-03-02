@@ -4,25 +4,31 @@ const { parseWithLLM } = require('../llm/generator');
  * 解析訊息是否為記帳指令
  */
 async function parseTransaction(content, attachments) {
-  // 簡單的正則匹配
-  // 格式:uber 199, 晚餐 300, +500, -200 等
-  
-  // 收入格式
-  const incomeMatch = content.match(/^[+]?(\d+)$/);
+  // 先交給 LLM 解析
+  const parsed = await parseWithLLM(content);
+  if (parsed) {
+    return parsed;
+  }
+
+  // 簡單的正則匹配（fallback）
+  // 格式: uber 199, 晚餐 300, +500, -200 等
+
+  // 收入格式（必須明確帶 +）
+  const incomeMatch = content.match(/^\+\s?(\d+(?:\.\d+)?)$/);
   if (incomeMatch) {
     return {
-      amount: parseInt(incomeMatch[1]),
+      amount: Number(incomeMatch[1]),
       type: 'income',
       category: '收入',
       note: '記錄收入',
     };
   }
-  
-  // 支出格式
-  const expenseMatch = content.match(/^[-]?(\d+)$/);
+
+  // 支出格式（必須明確帶 -）
+  const expenseMatch = content.match(/^-\s?(\d+(?:\.\d+)?)$/);
   if (expenseMatch) {
     return {
-      amount: parseInt(expenseMatch[1]),
+      amount: Number(expenseMatch[1]),
       type: 'expense',
       category: '未分類',
       note: '記錄支出',
@@ -34,17 +40,11 @@ async function parseTransaction(content, attachments) {
   if (textMatch) {
     const [, note, amount, category] = textMatch;
     return {
-      amount: parseInt(amount),
+      amount: Number(amount),
       type: 'expense',
       category: category || guessCategory(note),
       note: note.trim(),
     };
-  }
-  
-  // 用 LLM 解析
-  const parsed = await parseWithLLM(content);
-  if (parsed) {
-    return parsed;
   }
   
   // 如果有附件（圖片），嘗試用 LLM 辨識

@@ -85,8 +85,8 @@ const commands = [
     ],
   },
   {
-    name: '設定',
-    name_localizations: { 'en-US': 'settings' },
+    name: '預算',
+    name_localizations: { 'en-US': 'budget' },
     description: '設定每月預算',
     description_localizations: { 'en-US': 'Set monthly budget' },
     options: [
@@ -109,19 +109,36 @@ const commands = [
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const clientId = process.env.DISCORD_CLIENT_ID || '1477452115738886307';
+const guildId = process.env.DISCORD_GUILD_ID;
 
 async function registerCommands() {
   try {
+    if (!process.env.DISCORD_TOKEN) {
+      throw new Error('缺少 DISCORD_TOKEN，無法註冊 Slash 指令');
+    }
+    if (!clientId) {
+      throw new Error('缺少 DISCORD_CLIENT_ID，無法註冊 Slash 指令');
+    }
+
     console.log('開始註冊斜線指令...');
-    
-    await rest.put(
-      Routes.applicationCommands('1477452115738886307'),
-      { body: commands }
-    );
-    
-    console.log('✅ 斜線指令註冊成功！');
+
+    if (guildId) {
+      await rest.put(
+        Routes.applicationGuildCommands(clientId, guildId),
+        { body: commands }
+      );
+      console.log(`✅ Guild 斜線指令註冊成功（guild: ${guildId}）`);
+    } else {
+      await rest.put(
+        Routes.applicationCommands(clientId),
+        { body: commands }
+      );
+      console.log('✅ Global 斜線指令註冊成功！');
+    }
   } catch (error) {
     console.error('❌ 註冊失敗:', error);
+    process.exitCode = 1;
   }
 }
 

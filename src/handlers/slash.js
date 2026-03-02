@@ -1,5 +1,13 @@
-const { addTransaction, getUserBalance } = require('../db/queries');
+const {
+  addTransaction,
+  getUserBalance,
+  getChannelSettings,
+  upsertChannelSettings,
+  setChannelSetupState,
+  setChannelBudget,
+} = require('../db/queries');
 const { generateResponse } = require('../llm/generator');
+const { EmbedBuilder } = require('discord.js');
 
 async function handleSlashCommand(interaction) {
   const { commandName, options, channel, user } = interaction;
@@ -28,9 +36,9 @@ async function handleSlashCommand(interaction) {
       await handleStats(interaction, options);
       break;
       
-    case '設定':
-    case 'settings':
-      await handleSettings(interaction, options);
+    case '預算':
+    case 'budget':
+      await handleBudget(interaction, options);
       break;
       
     case '初始化':
@@ -120,11 +128,25 @@ async function handleStats(interaction, options) {
   });
 }
 
-async function handleSettings(interaction, options) {
+async function handleBudget(interaction, options) {
   const amount = options.getNumber('金額') || options.getNumber('amount');
-  
+  setChannelBudget(interaction.channelId, amount);
+
+  const settings = getChannelSettings(interaction.channelId);
+  const waitingForBudget = settings?.setup_state === 'await_budget';
+  const sameSetupUser = settings?.setup_user_id === interaction.user.id;
+
+  if (waitingForBudget && sameSetupUser) {
+    setChannelSetupState(interaction.channelId, 'await_reminder_time', interaction.user.id);
+    await interaction.reply({
+      content: `✅ 已設定每月預算：NT$ ${amount.toLocaleString()}\n下一題：你想每天幾點提醒記帳？例如「21:30」。`,
+      ephemeral: false,
+    });
+    return;
+  }
+
   await interaction.reply({
-    content: `⚙️ 設定功能開發中...（預算 NT$ ${amount}）`,
+    content: `✅ 已更新每月預算：NT$ ${amount.toLocaleString()}`,
     ephemeral: false,
   });
 }
@@ -132,11 +154,18 @@ async function handleSettings(interaction, options) {
 async function handleInit(interaction) {
   const channel = interaction.channel;
   const channelId = channel.id;
-  const dashboardUrl = `https://accounting.bc-verse.com/${channelId}`;
+  const dashboardBaseUrl = process.env.DASHBOARD_BASE_URL || 'http://localhost:3000';
+  const dashboardUrl = `${dashboardBaseUrl.replace(/\/$/, '')}/${channelId}`;
+
+  // 初始化（或更新）頻道設定，並進入初始化提問流程
+  upsertChannelSettings({
+    channelId,
+    name: channel.name,
+    type: 'personal',
+  });
+  setChannelSetupState(channelId, 'await_budget', interaction.user.id);
   
-  const { MessageEmbed } = require('discord.js');
-  
-  const embed = new MessageEmbed()
+  const embed = new EmbedBuilder()
     .setColor(0x00d9ff)
     .setTitle('🦑 記帳機器人')
     .setDescription('歡迎使用記帳機器人！')
@@ -149,23 +178,20 @@ async function handleInit(interaction) {
     .setFooter({ text: '記帳機器人 v1.0' })
     .setTimestamp();
   
-  // 先回覆
-  await interaction.reply({
+  // 先回覆並取得訊息，避免 pin 到錯誤對象
+  const replyMessage = await interaction.reply({
     embeds: [embed],
+    fetchReply: true,
   });
-  
-  // 發送後續問題
-  setTimeout(async () => {
-    await channel.send('💡 請問你的每月預算是多少？使用 /設定 [金額] 來設定');
-  }, 1000);
-  
-  // 嘗試取得回覆的訊息來釘選
+
+  // 送出後續提示
+  await interaction.followUp({
+    content: '💡 先來完成初始化第 1 題：請直接回覆你每月預算金額（例如：42000）。',
+  });
+
+  // 直接釘選 bot 回覆的初始化訊息
   try {
-    const messages = await channel.messages.fetch({ limit: 1 });
-    const lastMessage = messages.first();
-    if (lastMessage && lastMessage.author.id === interaction.client.user.id) {
-      await lastMessage.pin();
-    }
+    await replyMessage.pin();
   } catch (e) {
     console.log('釘選失敗:', e.message);
   }
