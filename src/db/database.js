@@ -153,6 +153,15 @@ async function initDatabase() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS guild_shared_ledgers (
+      guild_id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   migrateSchema();
   
   // 儲存資料庫

@@ -95,6 +95,15 @@ function resolveMonthRange(year, month) {
   return { startIso: start.toISOString(), endIso: end.toISOString(), year: y, month: m };
 }
 
+function getLedgerDisplayNameFromSettingsRow(row) {
+  const type = String(row?.type || 'personal');
+  if (type === 'shared') return '共同賬本';
+  const title = String(row?.user_title || '').trim();
+  if (title) return `${title}的賬本`;
+  const fallback = String(row?.name || '').trim();
+  return fallback || '個人賬本';
+}
+
 function withReadonlyDb(handler) {
   return (req, res) => {
     const dbPath = process.env.DB_PATH || './data/accounting.db';
@@ -162,9 +171,16 @@ app.get('/api/channel/:channelId', withReadonlyDb((req, res, db) => {
     `).get(channelId);
     
     const balance = (incomeRow?.total || 0) - (expenseRow?.total || 0);
+    const settingsRow = db.prepare(`
+      SELECT type, user_title, name
+      FROM channel_settings
+      WHERE channel_id = ?
+    `).get(channelId) || {};
     
     res.json({
       channelId,
+      ledgerName: getLedgerDisplayNameFromSettingsRow(settingsRow),
+      ledgerType: String(settingsRow?.type || 'personal'),
       balance,
       transactions
     });
@@ -207,6 +223,8 @@ app.get('/api/channel/:channelId/settings', withReadonlyDb((req, res, db) => {
 
   res.json({
     channelId,
+    ledgerName: getLedgerDisplayNameFromSettingsRow(row),
+    ledgerType: String(row?.type || 'personal'),
     budget: Number(row?.budget || 0),
     reminderTime: row?.reminder_time || '',
     splitBooks: Number(row?.split_books ?? 0) === 1,

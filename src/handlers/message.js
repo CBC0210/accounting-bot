@@ -1,5 +1,6 @@
 const {
   getChannelSettings,
+  getGuildSharedLedgerChannelId,
   setChannelSetupState,
   setChannelBudget,
   setChannelReminderTime,
@@ -26,7 +27,7 @@ const { EmbedBuilder } = require('discord.js');
 const { updateChannelBalanceName } = require('./channel');
 
 const DEFAULT_ALLOWED_CATEGORIES = [
-  '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '醫療', '教育', '投資', '禮物', '其他',
+  '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '日常生活', '醫療', '教育', '投資', '禮物', '其他',
   '薪資', '兼職', '被動收入', '紅包', '生活費',
 ];
 
@@ -59,7 +60,7 @@ async function handleMessageCore(message) {
     const content = message.content.trim();
     const channelSettings = getChannelSettings(message.channel.id);
     if (!isChannelReadyForMessage(channelSettings)) {
-      await message.reply('⚙️ 這個頻道尚未初始化，請先使用 `/初始化` 完成設定後再開始對話與記帳。');
+      // 未初始化頻道保持靜默，不主動回覆任何訊息
       return;
     }
     const allowedCategories = parseConfiguredCategories(channelSettings?.categories_text);
@@ -67,6 +68,11 @@ async function handleMessageCore(message) {
     const setupState = channelSettings?.setup_state || null;
     const setupUserId = channelSettings?.setup_user_id || null;
     const isSetupMode = Boolean(setupState);
+    const sharedTransfer = !isSetupMode ? parseSharedLedgerTransferIntent(content) : null;
+    if (sharedTransfer) {
+      const handled = await handleSharedLedgerTransfer(message, sharedTransfer.amount);
+      if (handled) return;
+    }
 
     const llmDecision = await decideActionWithLLM(content, {
       isSetupMode,
@@ -568,6 +574,7 @@ function inferCategoryAlias(contextText, allowedCategories) {
     { keywords: ['早餐', '午餐', '晚餐', '宵夜', '咖啡', '飲料', '餐', '吃'], target: '餐飲' },
     { keywords: ['捷運', '公車', 'uber', '計程車', '高鐵', '火車', '交通'], target: '交通' },
     { keywords: ['蝦皮', 'momo', '購物', '買'], target: '購物' },
+    { keywords: ['日常', '生活用品', '雜貨', '日用品', '家用'], target: '日常生活' },
     { keywords: ['電影', '遊戲', 'netflix', '娛樂'], target: '娛樂' },
     { keywords: ['薪水', '薪資', '發薪'], target: '薪資' },
     { keywords: ['兼職', '打工'], target: '兼職' },
@@ -984,6 +991,106 @@ function buildCategoryShareBar(rows, width = 20) {
   return slots
     .map((count, idx) => symbols[idx % symbols.length].repeat(count))
     .join('');
+}
+
+function parseSharedLedgerTransferIntent(content) {
+  const text = String(content || '').trim();
+  if (!text) return null;
+  if (!/(共同[賬帳]本|共同[賬帳]號)/.test(text)) return null;
+  if (!/(添加|加|匯|轉|給|入賬|入帳)/.test(text)) return null;
+  const amountMatch = text.match(/(\d+(?:\.\d+)?)/);
+  if (!amountMatch) return null;
+  const amount = Number(amountMatch[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return { amount: Math.round(amount) };
+}
+
+async function handleSharedLedgerTransfer(message, amount) {
+  const guildId = message.guild?.id;
+  if (!guildId) return false;
+  const sharedChannelId = getGuildSharedLedgerChannelId(guildId);
+  if (!sharedChannelId) {
+    await message.reply('⚠️ 這個伺服器尚未設定共同賬本，請先使用 `/初始化-共同記賬`。');
+    return true;
+  }
+  if (sharedChannelId === message.channel.id) {
+    await message.reply('ℹ️ 目前頻道就是共同賬本，不需要再轉入。');
+    return true;
+  }
+
+  const sharedSettings = getChannelSettings(sharedChannelId);
+  if (!isChannelReadyForMessage(sharedSettings)) {
+    await message.reply('⚠️ 共同賬本尚未完成初始化，請先在共同賬本頻道完成設定。');
+    return true;
+  }
+
+  const sourceSettings = getChannelSettings(message.channel.id);
+  const actorName = String(sourceSettings?.user_title || message.member?.displayName || message.author?.username || '使用者');
+  const { run } = require('../db/database');
+  const nowIso = new Date().toISOString();
+  run(`
+    INSERT INTO transactions (channel_id, user_id, amount, category, note, type, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [
+    message.channel.id,
+    message.author.id,
+    amount,
+    '轉帳',
+    `轉入共同賬本`,
+    'expense',
+    nowIso,
+  ]);
+  run(`
+    INSERT INTO transactions (channel_id, user_id, amount, category, note, type, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [
+    sharedChannelId,
+    message.author.id,
+    amount,
+    '共同轉入',
+    `來自 ${actorName}`,
+    'income',
+    nowIso,
+  ]);
+
+  const sourceBalance = getChannelNetBalance(message.channel.id);
+  const sharedBalance = getChannelNetBalance(sharedChannelId);
+  void updateChannelBalanceName(message.channel);
+  try {
+    const sharedChannel = await message.guild.channels.fetch(sharedChannelId);
+    if (sharedChannel) void updateChannelBalanceName(sharedChannel);
+  } catch (error) {
+    console.log('共同賬本頻道更新失敗:', error.message);
+  }
+
+  await sendEmbed(message, {
+    title: '🏦 轉入共同賬本成功',
+    fields: [
+      { name: '金額', value: `NT$ ${amount.toLocaleString()}`, inline: true },
+      { name: '來源頻道餘額', value: `NT$ ${sourceBalance.toLocaleString()}`, inline: true },
+      { name: '共同賬本餘額', value: `NT$ ${sharedBalance.toLocaleString()}`, inline: true },
+      { name: '共同賬本頻道', value: `<#${sharedChannelId}>`, inline: false },
+    ],
+  });
+
+  try {
+    const sharedChannel = await message.guild.channels.fetch(sharedChannelId);
+    if (sharedChannel && typeof sharedChannel.send === 'function') {
+      const embed = new EmbedBuilder()
+        .setColor(0x22c55e)
+        .setTitle('🏦 收到共同轉入')
+        .addFields(
+          { name: '來源', value: `${actorName}`, inline: false },
+          { name: '金額', value: `+NT$ ${amount.toLocaleString()}`, inline: true },
+          { name: '共同賬本餘額', value: `NT$ ${sharedBalance.toLocaleString()}`, inline: true }
+        )
+        .setTimestamp();
+      await sharedChannel.send({ embeds: [embed] });
+    }
+  } catch (error) {
+    console.log('共同賬本發送轉入通知失敗:', error.message);
+  }
+  return true;
 }
 
 function startTypingIndicator(channel) {

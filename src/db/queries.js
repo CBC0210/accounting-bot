@@ -36,6 +36,35 @@ function getChannelSettings(channelId) {
   `, [channelId]);
 }
 
+function getGuildSharedLedgerChannelId(guildId) {
+  if (!guildId) return null;
+  const row = get(`
+    SELECT channel_id
+    FROM guild_shared_ledgers
+    WHERE guild_id = ?
+  `, [guildId]);
+  return row?.channel_id || null;
+}
+
+function upsertGuildSharedLedger(guildId, channelId) {
+  if (!guildId || !channelId) return;
+  run(`
+    INSERT INTO guild_shared_ledgers (guild_id, channel_id, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(guild_id) DO UPDATE SET
+      channel_id = excluded.channel_id,
+      updated_at = excluded.updated_at
+  `, [guildId, channelId, new Date().toISOString()]);
+}
+
+function clearGuildSharedLedger(guildId) {
+  if (!guildId) return;
+  run(`
+    DELETE FROM guild_shared_ledgers
+    WHERE guild_id = ?
+  `, [guildId]);
+}
+
 function getChannelTransactionCount(channelId) {
   const row = get(`
     SELECT COUNT(*) AS total
@@ -416,6 +445,9 @@ module.exports = {
   addTransaction,
   getUserBalance,
   getChannelSettings,
+  getGuildSharedLedgerChannelId,
+  upsertGuildSharedLedger,
+  clearGuildSharedLedger,
   getChannelTransactionCount,
   upsertChannelSettings,
   setChannelSetupState,

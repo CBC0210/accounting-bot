@@ -376,7 +376,7 @@
 <body>
   <div class="container">
     <header>
-      <h1>🦑 記帳 Dashboard</h1>
+      <h1 id="dashboardTitle">🦑 記帳 Dashboard</h1>
       <span class="channel-id" id="channelId">載入中...</span>
     </header>
     
@@ -388,10 +388,10 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     const channelId = window.location.pathname.replace('/', '');
-    document.getElementById('channelId').textContent = channelId;
+    document.getElementById('channelId').textContent = '載入賬本中...';
 
     const defaultCategoryTags = [
-      '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '醫療', '教育', '投資', '禮物', '其他',
+      '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '日常生活', '醫療', '教育', '投資', '禮物', '其他',
       '薪資', '兼職', '被動收入', '紅包', '生活費'
     ];
     const defaultStyleTags = ['友善', '幽默', '精簡'];
@@ -460,6 +460,21 @@
       statusEl.textContent = message;
       statusEl.classList.toggle('error', Boolean(isError));
       statusEl.classList.toggle('success', !isError && Boolean(message));
+    }
+
+    function getLedgerDisplayName(ledgerType, title, fallbackName) {
+      if (String(ledgerType || 'personal') === 'shared') return '共同賬本';
+      const t = String(title || '').trim();
+      if (t) return `${t}的賬本`;
+      const fallback = String(fallbackName || '').trim();
+      return fallback || '個人賬本';
+    }
+
+    function normalizeTransactionNote(noteText) {
+      const text = String(noteText || '').trim();
+      if (!text) return '-';
+      if (/^來自頻道\s+\d+$/.test(text)) return '來自其他賬本';
+      return text;
     }
 
     function getMonthParts(monthText) {
@@ -625,6 +640,14 @@
         categoryTags = parseTagsFromSettingsText(settings.categoriesText, defaultCategoryTags);
         styleTags = parseTagsFromSettingsText(settings.chatStyleTagsText, defaultStyleTags);
         recurringRows = parseRecurringRowsText(settings.recurringItemsText || '');
+        const ledgerName = getLedgerDisplayName(
+          settings.ledgerType || data.ledgerType,
+          settings.title,
+          settings.ledgerName || data.ledgerName
+        );
+        document.getElementById('dashboardTitle').textContent = `🦑 ${ledgerName}`;
+        document.getElementById('channelId').textContent = ledgerName;
+        document.title = `${ledgerName} - Dashboard`;
 
         const balanceClass = data.balance >= 0 ? 'positive' : 'negative';
         const balancePrefix = data.balance >= 0 ? '+' : '';
@@ -1014,7 +1037,7 @@
             <li class="transaction">
               <div class="t-info">
                 <span class="t-category" style="${categoryStyle}">${escapeHtml(t.category)}</span>
-                <div class="t-note">${escapeHtml(t.note || '-')}</div>
+                <div class="t-note">${escapeHtml(normalizeTransactionNote(t.note))}</div>
                 <div class="t-time">${escapeHtml(date)}</div>
               </div>
               <div class="t-amount ${escapeHtml(t.type)}">${amountPrefix}NT$ ${Number(t.amount).toLocaleString()}</div>
@@ -1037,6 +1060,7 @@
         '購物': ['#be185d', '#fce7f3'],
         '娛樂': ['#ea580c', '#ffedd5'],
         '房租/帳單': ['#0f766e', '#ccfbf1'],
+        '日常生活': ['#4338ca', '#e0e7ff'],
         '醫療': ['#047857', '#d1fae5'],
         '教育': ['#7c2d12', '#ffedd5'],
         '投資': ['#065f46', '#d1fae5'],

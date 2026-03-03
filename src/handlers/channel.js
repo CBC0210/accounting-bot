@@ -48,16 +48,24 @@ function formatBalanceNumber(balance) {
   return `${rounded}`;
 }
 
+function buildLedgerBaseName(settings) {
+  const type = String(settings?.type || 'personal');
+  if (type === 'shared') return '共同賬本';
+  const title = String(settings?.user_title || '').trim();
+  return title ? `${title}的賬本` : '個人賬本';
+}
+
 async function updateChannelBalanceName(channel) {
   if (!channel || typeof channel.setName !== 'function') return false;
 
   const settings = getChannelSettings(channel.id);
-  const title = settings?.user_title;
+  const type = String(settings?.type || 'personal');
   const showBalanceInName = Number(settings?.show_balance_in_name ?? 1) === 1;
-  if (!title || !showBalanceInName) return false;
+  if (type !== 'shared' && !showBalanceInName) return false;
 
   const balance = getChannelNetBalance(channel.id);
-  const nextName = normalizeChannelName(`${title}_${formatBalanceNumber(balance)}`);
+  const baseName = buildLedgerBaseName(settings);
+  const nextName = normalizeChannelName(`${baseName}_${formatBalanceNumber(balance)}`);
   if (!nextName) return false;
   if (channel.name === nextName) return true;
 

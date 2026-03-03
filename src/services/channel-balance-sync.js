@@ -10,9 +10,14 @@ async function tickChannelBalanceSync(client) {
     SELECT channel_id
     FROM channel_settings
     WHERE setup_completed_at IS NOT NULL
-      AND COALESCE(show_balance_in_name, 1) = 1
-      AND user_title IS NOT NULL
-      AND TRIM(user_title) <> ''
+      AND (
+        type = 'shared'
+        OR (
+          COALESCE(show_balance_in_name, 1) = 1
+          AND user_title IS NOT NULL
+          AND TRIM(user_title) <> ''
+        )
+      )
   `);
 
   for (const row of rows) {
