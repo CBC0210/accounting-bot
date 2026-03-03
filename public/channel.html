@@ -92,16 +92,17 @@
       align-items: center;
       padding: 12px 0;
       border-bottom: 1px solid #2a2a4a;
+      gap: 10px;
     }
     .transaction:last-child { border-bottom: none; }
     
     .t-info { flex: 1; }
     .t-category {
-      background: #0d0d1a;
       padding: 2px 8px;
       border-radius: 4px;
       font-size: 0.8rem;
-      color: var(--accent);
+      color: #dff4ff;
+      border: 1px solid #2a2a4a;
     }
     .t-note { color: var(--text); margin-top: 4px; }
     .t-time { color: var(--muted); font-size: 0.8rem; }
@@ -112,6 +113,164 @@
     }
     .t-amount.income { color: var(--green); }
     .t-amount.expense { color: var(--red); }
+
+    .t-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      border: 1px solid #2a2a4a;
+      background: #121226;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn-danger:hover { border-color: var(--red); color: var(--red); }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .form-field { display: flex; flex-direction: column; gap: 6px; }
+    .form-field.full { grid-column: 1 / -1; }
+    .form-field label { color: var(--muted); font-size: 0.85rem; }
+    .form-field input, .form-field textarea, .form-field select {
+      background: #0d0d1a;
+      border: 1px solid #2a2a4a;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 0.95rem;
+    }
+    .form-field textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    .status-text {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 10px;
+    }
+    .status-text.error { color: var(--red); }
+    .status-text.success { color: var(--green); }
+
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .settings-panel { display: none; }
+    .settings-panel.open { display: block; }
+
+    .chips-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #2a2a4a;
+      background: #101022;
+      color: var(--text);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 0.82rem;
+    }
+    .chip button {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 0;
+      line-height: 1;
+    }
+    .chip button:hover { color: var(--red); }
+
+    .chip-add-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .chip-add-row input { flex: 1; }
+
+    .actions-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .recurring-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .recurring-row {
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      padding: 10px;
+      background: #101022;
+      display: grid;
+      grid-template-columns: minmax(140px, 2fr) repeat(3, minmax(90px, 1fr)) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .recurring-row > * {
+      min-width: 0;
+    }
+    .recurring-row input,
+    .recurring-row select {
+      width: 100%;
+    }
+    .recurring-row .btn {
+      white-space: nowrap;
+      padding: 8px 10px;
+    }
+    .recurring-row .row-inline {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      grid-column: 1 / -1;
+    }
+
+    .month-select-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .segmented {
+      display: inline-flex;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0d0d1a;
+    }
+    .segmented button {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .segmented button.active {
+      color: var(--text);
+      background: #1b1b34;
+    }
     
     .loading {
       text-align: center;
@@ -125,6 +284,92 @@
       padding: 16px;
       border-radius: 8px;
       color: var(--red);
+    }
+
+    .group-header {
+      background: #121226;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+
+    canvas {
+      max-width: 100%;
+      height: auto;
+    }
+
+    @media (max-width: 768px) {
+      body { padding: 12px; }
+      .card { padding: 16px; }
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .channel-id {
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .balance { font-size: 2.2rem; }
+      .stats { grid-template-columns: 1fr; gap: 10px; margin-top: 12px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .toggle-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .month-select-row {
+        width: 100%;
+      }
+      .month-select-row select {
+        flex: 1;
+        min-width: 0;
+      }
+      .segmented {
+        width: 100%;
+      }
+      .segmented button {
+        flex: 1;
+      }
+      .transaction {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .t-amount {
+        align-self: flex-end;
+      }
+      .t-actions {
+        justify-content: flex-end;
+        flex-wrap: wrap;
+      }
+      .chip-add-row,
+      .actions-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .recurring-row {
+        grid-template-columns: 1fr;
+      }
+      .recurring-row .row-inline {
+        grid-template-columns: 1fr;
+      }
+      .actions-row .btn {
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .balance { font-size: 1.8rem; }
+      .stat-value { font-size: 1.25rem; }
+      .btn { font-size: 0.8rem; }
+      .form-field input, .form-field textarea, .form-field select {
+        font-size: 0.9rem;
+      }
     }
   </style>
 </head>
@@ -140,51 +385,254 @@
     </div>
   </div>
   
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     const channelId = window.location.pathname.replace('/', '');
     document.getElementById('channelId').textContent = channelId;
-    
+
+    const defaultCategoryTags = [
+      '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '醫療', '教育', '投資', '禮物', '其他',
+      '薪資', '兼職', '被動收入', '紅包', '生活費'
+    ];
+    const defaultStyleTags = ['友善', '幽默', '精簡'];
+    let settingsPanelOpen = false;
+    let categoryTags = [];
+    let styleTags = [];
+    let recurringRows = [];
+    let chartExpense = null;
+    let chartIncome = null;
+    let listMode = 'by_date';
+    let selectedMonth = '';
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function dedupeTags(tags) {
+      const seen = new Set();
+      return tags
+        .map((t) => String(t || '').trim())
+        .filter(Boolean)
+        .filter((t) => {
+          const key = t.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+    }
+
+    function parseTagsFromSettingsText(text, fallback) {
+      const lines = String(text || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const tags = [];
+      lines.forEach((line) => {
+        if (line.includes('：')) {
+          const parts = line.split('：');
+          const listText = parts.slice(1).join('：');
+          listText.split(/[、,，]/).forEach((token) => tags.push(token.trim()));
+        } else {
+          line.split(/[、,，]/).forEach((token) => tags.push(token.trim()));
+        }
+      });
+      const cleaned = dedupeTags(tags);
+      return cleaned.length ? cleaned : [...fallback];
+    }
+
+    function chipsHtml(tags, removeHandlerName) {
+      return dedupeTags(tags)
+        .map((tag) => {
+          const encoded = encodeURIComponent(tag);
+          return `<span class="chip">${escapeHtml(tag)}<button onclick="${removeHandlerName}(decodeURIComponent('${encoded}'))">✕</button></span>`;
+        })
+        .join('');
+    }
+
+    function setStatus(message, isError = false) {
+      const statusEl = document.getElementById('settingsStatus');
+      if (!statusEl) return;
+      statusEl.textContent = message;
+      statusEl.classList.toggle('error', Boolean(isError));
+      statusEl.classList.toggle('success', !isError && Boolean(message));
+    }
+
+    function getMonthParts(monthText) {
+      const match = String(monthText || '').match(/^(\d{4})-(\d{2})$/);
+      if (!match) return null;
+      return { year: Number(match[1]), month: Number(match[2]) };
+    }
+
+    function getDefaultMonthText() {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function buildYearOptions(selectedYear) {
+      const currentYear = new Date().getFullYear();
+      const years = [];
+      for (let y = currentYear - 5; y <= currentYear; y += 1) years.push(y);
+      const selected = Number(selectedYear);
+      if (Number.isFinite(selected) && !years.includes(selected)) years.push(selected);
+      years.sort((a, b) => a - b);
+      return years
+        .map((y) => `<option value="${y}" ${Number(selectedYear) === y ? 'selected' : ''}>${y}年</option>`)
+        .join('');
+    }
+
+    function buildMonthOptions(selectedMonthNum) {
+      const monthNum = Number(selectedMonthNum);
+      const months = Array.from({ length: 12 }, (_, i) => i + 1);
+      return months
+        .map((m) => `<option value="${m}" ${monthNum === m ? 'selected' : ''}>${m}月</option>`)
+        .join('');
+    }
+
+    function createEmptyRecurringRow() {
+      return {
+        name: '',
+        amount: '',
+        scheduleType: 'monthly',
+        day: '1',
+        weekday: '一',
+        time: '09:00',
+        type: 'expense',
+      };
+    }
+
+    function parseRecurringRowsText(text) {
+      const lines = String(text || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const rows = lines.map((line) => {
+        const parts = line.split(/[,\uFF0C]/).map((v) => v.trim());
+        if (parts.length < 4) return null;
+        const name = parts[0];
+        const amount = String(Number(parts[1]) || '');
+        const schedule = parts[2];
+        const type = parts[3] === 'income' ? 'income' : 'expense';
+        let scheduleType = 'monthly';
+        let day = '1';
+        let weekday = '一';
+        let time = '09:00';
+
+        let m = schedule.match(/^每月(\d{1,2})號?(?:\s+(\d{1,2}:\d{2}))?$/);
+        if (m) {
+          scheduleType = 'monthly';
+          day = m[1];
+          if (m[2]) time = m[2];
+          return { name, amount, scheduleType, day, weekday, time, type };
+        }
+
+        m = schedule.match(/^每週([一二三四五六日天])(?:\s+(\d{1,2}:\d{2}))?$/);
+        if (m) {
+          scheduleType = 'weekly';
+          weekday = m[1] === '天' ? '日' : m[1];
+          if (m[2]) time = m[2];
+          return { name, amount, scheduleType, day, weekday, time, type };
+        }
+
+        m = schedule.match(/^每日(?:\s+(\d{1,2}:\d{2}))?$/);
+        if (m) {
+          scheduleType = 'daily';
+          if (m[1]) time = m[1];
+          return { name, amount, scheduleType, day, weekday, time, type };
+        }
+
+        return { name, amount, scheduleType, day, weekday, time, type };
+      }).filter(Boolean);
+
+      return rows.length ? rows : [createEmptyRecurringRow()];
+    }
+
+    function recurringRowsToText(rows) {
+      return rows
+        .map((row) => {
+          const name = String(row.name || '').trim();
+          const amount = Number(String(row.amount || '').trim());
+          const time = String(row.time || '').trim();
+          if (!name || !Number.isFinite(amount) || amount <= 0 || !isValidTime(time)) return null;
+
+          let schedule = `每月${Number(row.day || 1)}號 ${time}`;
+          if (row.scheduleType === 'weekly') {
+            schedule = `每週${row.weekday || '一'} ${time}`;
+          } else if (row.scheduleType === 'daily') {
+            schedule = `每日 ${time}`;
+          }
+          return `${name},${Math.round(amount)},${schedule},${row.type === 'income' ? 'income' : 'expense'}`;
+        })
+        .filter(Boolean)
+        .join('\n');
+    }
+
+    function renderRecurringRows() {
+      return recurringRows.map((row, idx) => `
+        <div class="recurring-row">
+          <input type="text" placeholder="名稱（例：房租）" value="${escapeHtml(row.name)}" onchange="updateRecurringRow(${idx}, 'name', this.value)" />
+          <input type="text" inputmode="numeric" placeholder="金額" value="${escapeHtml(row.amount)}" onchange="updateRecurringRow(${idx}, 'amount', this.value)" />
+          <select onchange="updateRecurringRow(${idx}, 'scheduleType', this.value)">
+            <option value="monthly" ${row.scheduleType === 'monthly' ? 'selected' : ''}>每月</option>
+            <option value="weekly" ${row.scheduleType === 'weekly' ? 'selected' : ''}>每週</option>
+            <option value="daily" ${row.scheduleType === 'daily' ? 'selected' : ''}>每日</option>
+          </select>
+          <select onchange="updateRecurringRow(${idx}, 'type', this.value)">
+            <option value="expense" ${row.type === 'expense' ? 'selected' : ''}>支出</option>
+            <option value="income" ${row.type === 'income' ? 'selected' : ''}>收入</option>
+          </select>
+          <button class="btn btn-danger" onclick="removeRecurringRow(${idx})">刪除</button>
+          <div class="row-inline">
+            ${row.scheduleType === 'monthly'
+              ? `<input type="text" inputmode="numeric" placeholder="每月幾號" value="${escapeHtml(row.day)}" onchange="updateRecurringRow(${idx}, 'day', this.value)" />`
+              : row.scheduleType === 'weekly'
+                ? `<select onchange="updateRecurringRow(${idx}, 'weekday', this.value)">
+                    ${['一','二','三','四','五','六','日'].map((d) => `<option value="${d}" ${row.weekday === d ? 'selected' : ''}>週${d}</option>`).join('')}
+                  </select>`
+                : `<div class="status-text">每日固定執行</div>`}
+            <input type="text" placeholder="時間 HH:mm" value="${escapeHtml(row.time)}" onchange="updateRecurringRow(${idx}, 'time', this.value)" />
+          </div>
+        </div>
+      `).join('');
+    }
+
     async function loadData() {
       try {
-        const res = await fetch(`/api/channel/${channelId}`);
-        const data = await res.json();
-        
+        if (!selectedMonth) selectedMonth = getDefaultMonthText();
+        const monthParts = getMonthParts(selectedMonth) || getMonthParts(getDefaultMonthText());
+        const [channelRes, settingsRes, analyticsRes, monthTxRes] = await Promise.all([
+          fetch(`/api/channel/${channelId}`),
+          fetch(`/api/channel/${channelId}/settings`),
+          fetch(`/api/channel/${channelId}/analytics/month?year=${monthParts.year}&month=${monthParts.month}`),
+          fetch(`/api/channel/${channelId}/transactions?year=${monthParts.year}&month=${monthParts.month}`),
+        ]);
+        const data = await channelRes.json();
+        const settings = await settingsRes.json();
+        const analytics = await analyticsRes.json();
+        const monthTxPayload = await monthTxRes.json();
+        const monthTransactions = Array.isArray(monthTxPayload.transactions) ? monthTxPayload.transactions : [];
+
         if (data.error) {
-          document.getElementById('app').innerHTML = `<div class="error">錯誤: ${data.error}</div>`;
+          document.getElementById('app').innerHTML = `<div class="error">錯誤: ${escapeHtml(data.error)}</div>`;
           return;
         }
-        
+
+        categoryTags = parseTagsFromSettingsText(settings.categoriesText, defaultCategoryTags);
+        styleTags = parseTagsFromSettingsText(settings.chatStyleTagsText, defaultStyleTags);
+        recurringRows = parseRecurringRowsText(settings.recurringItemsText || '');
+
         const balanceClass = data.balance >= 0 ? 'positive' : 'negative';
         const balancePrefix = data.balance >= 0 ? '+' : '';
-        
-        const incomeTotal = data.transactions
-          .filter(t => t.type === 'income')
-          .reduce((sum, t) => sum + t.amount, 0);
-        
-        const expenseTotal = data.transactions
-          .filter(t => t.type === 'expense')
-          .reduce((sum, t) => sum + t.amount, 0);
-        
-        let transactionsHtml = '';
-        if (data.transactions.length === 0) {
-          transactionsHtml = '<div class="loading">還沒有記錄</div>';
-        } else {
-          data.transactions.forEach(t => {
-            const amountPrefix = t.type === 'income' ? '+' : '-';
-            const date = new Date(t.timestamp).toLocaleString('zh-TW');
-            transactionsHtml += `
-              <li class="transaction">
-                <div class="t-info">
-                  <span class="t-category">${t.category}</span>
-                  <div class="t-note">${t.note || '-'}</div>
-                  <div class="t-time">${date}</div>
-                </div>
-                <div class="t-amount ${t.type}">${amountPrefix}NT$ ${t.amount}</div>
-              </li>
-            `;
-          });
-        }
-        
+        const incomeTotal = data.transactions.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+        const expenseTotal = data.transactions.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+
+        const transactionsHtml = renderTransactionsList(monthTransactions, listMode);
+
         document.getElementById('app').innerHTML = `
           <div class="card">
             <div class="balance-label">目前餘額</div>
@@ -200,20 +648,479 @@
               </div>
             </div>
           </div>
-          
+
           <div class="card">
-            <h2 style="margin-bottom: 16px;">📝 最近記錄</h2>
-            <ul class="transactions">
-              ${transactionsHtml}
-            </ul>
+            <div class="toggle-row">
+              <h2 style="margin: 0;">📊 月分析</h2>
+              <div class="month-select-row">
+                <select id="yearPicker" onchange="changeMonthPart('year', this.value)">
+                  ${buildYearOptions(monthParts.year)}
+                </select>
+                <select id="monthPicker" onchange="changeMonthPart('month', this.value)">
+                  ${buildMonthOptions(monthParts.month)}
+                </select>
+              </div>
+            </div>
+            <div class="stats">
+              <div class="stat">
+                <div class="stat-value income">+NT$ ${Number(analytics?.totals?.income || 0).toLocaleString()}</div>
+                <div class="stat-label">本月收入</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value expense">-NT$ ${Number(analytics?.totals?.expense || 0).toLocaleString()}</div>
+                <div class="stat-label">本月支出</div>
+              </div>
+            </div>
+            <div style="margin-top: 10px; color: var(--muted);">本月結餘：NT$ ${Number(analytics?.totals?.net || 0).toLocaleString()}</div>
+            <div class="stats" style="margin-top: 16px;">
+              <div class="stat"><canvas id="expensePie" height="220"></canvas></div>
+              <div class="stat"><canvas id="incomePie" height="220"></canvas></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="toggle-row">
+              <h2 style="margin: 0;">📝 月條目</h2>
+              <div class="segmented">
+                <button class="${listMode === 'by_date' ? 'active' : ''}" onclick="changeListMode('by_date')">依日期</button>
+                <button class="${listMode === 'by_category' ? 'active' : ''}" onclick="changeListMode('by_category')">依分類</button>
+              </div>
+            </div>
+            <div class="status-text">目前模式：${listMode === 'by_date' ? '依日期（每天）' : '依分類（標籤）'}</div>
+            <ul class="transactions">${transactionsHtml}</ul>
+          </div>
+
+          <div class="card">
+            <div class="toggle-row">
+              <h2 style="margin: 0;">⚙️ 設定</h2>
+              <button class="btn" onclick="toggleSettingsPanel()">${settingsPanelOpen ? '收合設定' : '展開設定'}</button>
+            </div>
+            <div class="settings-panel ${settingsPanelOpen ? 'open' : ''}">
+              <div class="form-grid">
+                <div class="form-field">
+                  <label>每月預算</label>
+                  <input id="budgetInput" type="text" inputmode="numeric" placeholder="例如 42000" value="${Number(settings.budget || 0)}" />
+                </div>
+                <div class="form-field">
+                  <label>每日提醒時間</label>
+                  <input id="reminderTimeInput" type="text" placeholder="21:30" value="${escapeHtml(settings.reminderTime || '')}" />
+                </div>
+                <div class="form-field">
+                  <label>性別</label>
+                  <select id="genderInput">
+                    <option value="">未設定</option>
+                    <option value="male" ${settings.gender === 'male' ? 'selected' : ''}>男</option>
+                    <option value="female" ${settings.gender === 'female' ? 'selected' : ''}>女</option>
+                    <option value="other" ${settings.gender === 'other' ? 'selected' : ''}>其他</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>稱呼</label>
+                  <input id="titleInput" type="text" placeholder="例如：柏丞" value="${escapeHtml(settings.title || '')}" />
+                </div>
+                <div class="form-field">
+                  <label>貨幣</label>
+                  <input id="currencyInput" type="text" placeholder="TWD" value="${escapeHtml(settings.currency || 'TWD')}" />
+                </div>
+                <div class="form-field">
+                  <label>頻道名稱顯示餘額</label>
+                  <select id="showBalanceInNameInput">
+                    <option value="true" ${settings.showBalanceInName ? 'selected' : ''}>開啟</option>
+                    <option value="false" ${!settings.showBalanceInName ? 'selected' : ''}>關閉</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>載具同步</label>
+                  <select id="vehicleSyncInput" disabled>
+                    <option value="true" ${settings.vehicleSyncEnabled ? 'selected' : ''}>開啟</option>
+                    <option value="false" ${!settings.vehicleSyncEnabled ? 'selected' : ''}>關閉</option>
+                  </select>
+                  <div class="status-text">開發中，暫不啟用</div>
+                </div>
+
+                <div class="form-field full">
+                  <label>分類（Tag 多選，可新增）</label>
+                  <div id="categoryChips" class="chips-wrap">${chipsHtml(categoryTags, 'removeCategoryTag')}</div>
+                  <div class="chip-add-row">
+                    <input id="categoryTagInput" type="text" placeholder="輸入新分類，例如：旅遊" />
+                    <button class="btn" onclick="addCategoryTag()">新增分類</button>
+                  </div>
+                </div>
+
+                <div class="form-field full">
+                  <label>對話風格標籤（可多選，可新增）</label>
+                  <div id="styleChips" class="chips-wrap">${chipsHtml(styleTags, 'removeStyleTag')}</div>
+                  <div class="chip-add-row">
+                    <input id="styleTagInput" type="text" placeholder="例如：溫柔、幹話、專業、鼓勵" />
+                    <button class="btn" onclick="addStyleTag()">新增風格</button>
+                  </div>
+                </div>
+
+                <div class="form-field full">
+                  <label>週期收支設定</label>
+                  <div id="recurringRows" class="recurring-list">${renderRecurringRows()}</div>
+                  <div class="actions-row">
+                    <button class="btn" onclick="addRecurringRow()">新增週期收支</button>
+                  </div>
+                </div>
+
+                <div class="form-field full">
+                  <div class="actions-row">
+                    <button class="btn" onclick="saveSettings()">儲存設定</button>
+                    <button class="btn" onclick="exportData('json')">匯出 JSON</button>
+                    <button class="btn" onclick="exportData('csv')">匯出 CSV</button>
+                  </div>
+                  <div class="actions-row">
+                    <input id="importFileInput" type="file" accept=".json,.csv,application/json,text/csv" />
+                    <select id="importModeInput">
+                      <option value="append">附加匯入</option>
+                      <option value="replace">覆蓋本頻道交易</option>
+                    </select>
+                    <button class="btn" onclick="importData()">匯入檔案</button>
+                  </div>
+                  <div id="settingsStatus" class="status-text"></div>
+                </div>
+              </div>
+            </div>
           </div>
         `;
+        renderPieCharts(analytics);
       } catch (error) {
-        document.getElementById('app').innerHTML = `<div class="error">載入失敗: ${error.message}</div>`;
+        document.getElementById('app').innerHTML = `<div class="error">載入失敗: ${escapeHtml(error.message)}</div>`;
       }
     }
-    
+
+    function toggleSettingsPanel() {
+      settingsPanelOpen = !settingsPanelOpen;
+      loadData();
+    }
+
+    function rerenderTagSections() {
+      const categoryEl = document.getElementById('categoryChips');
+      if (categoryEl) categoryEl.innerHTML = chipsHtml(categoryTags, 'removeCategoryTag');
+      const styleEl = document.getElementById('styleChips');
+      if (styleEl) styleEl.innerHTML = chipsHtml(styleTags, 'removeStyleTag');
+    }
+
+    function addCategoryTag() {
+      const input = document.getElementById('categoryTagInput');
+      const value = String(input?.value || '').trim();
+      if (!value) return;
+      categoryTags = dedupeTags([...categoryTags, value]);
+      if (input) input.value = '';
+      rerenderTagSections();
+    }
+
+    function removeCategoryTag(tag) {
+      categoryTags = categoryTags.filter((item) => item.toLowerCase() !== String(tag).toLowerCase());
+      rerenderTagSections();
+    }
+
+    function addStyleTag() {
+      const input = document.getElementById('styleTagInput');
+      const value = String(input?.value || '').trim();
+      if (!value) return;
+      styleTags = dedupeTags([...styleTags, value]);
+      if (input) input.value = '';
+      rerenderTagSections();
+    }
+
+    function removeStyleTag(tag) {
+      styleTags = styleTags.filter((item) => item.toLowerCase() !== String(tag).toLowerCase());
+      rerenderTagSections();
+    }
+
+    function rerenderRecurringRows() {
+      const el = document.getElementById('recurringRows');
+      if (!el) return;
+      el.innerHTML = renderRecurringRows();
+    }
+
+    function addRecurringRow() {
+      recurringRows = [...recurringRows, createEmptyRecurringRow()];
+      rerenderRecurringRows();
+    }
+
+    function removeRecurringRow(index) {
+      recurringRows = recurringRows.filter((_, idx) => idx !== index);
+      if (!recurringRows.length) recurringRows = [createEmptyRecurringRow()];
+      rerenderRecurringRows();
+    }
+
+    function updateRecurringRow(index, field, value) {
+      recurringRows = recurringRows.map((row, idx) => (
+        idx === index ? { ...row, [field]: String(value || '').trim() } : row
+      ));
+    }
+
+    function parseBudgetInput(text) {
+      const normalized = String(text || '').replace(/[,\s]/g, '');
+      if (!/^\d+$/.test(normalized)) return null;
+      const value = Number(normalized);
+      if (!Number.isFinite(value) || value < 0) return null;
+      return Math.round(value);
+    }
+
+    function isValidTime(text) {
+      return /^([01]?\d|2[0-3]):([0-5]\d)$/.test(String(text || '').trim());
+    }
+
+    async function saveSettings() {
+      const budgetRaw = String(document.getElementById('budgetInput').value || '').trim();
+      const budgetValue = parseBudgetInput(budgetRaw);
+      if (budgetValue === null) {
+        setStatus('預算格式錯誤：請輸入 0 或正整數（例如 42000）', true);
+        return;
+      }
+
+      const reminderTime = document.getElementById('reminderTimeInput').value.trim();
+      if (reminderTime && !isValidTime(reminderTime)) {
+        setStatus('提醒時間格式錯誤：請使用 HH:mm（例如 21:30）', true);
+        return;
+      }
+
+      const currencyValue = document.getElementById('currencyInput').value.trim() || 'TWD';
+      if (!/^[A-Za-z]{2,6}$/.test(currencyValue)) {
+        setStatus('貨幣格式錯誤：請輸入 2-6 位英文字母（例如 TWD）', true);
+        return;
+      }
+
+      const payload = {
+        budget: budgetValue,
+        reminderTime,
+        gender: document.getElementById('genderInput').value,
+        title: document.getElementById('titleInput').value.trim(),
+        currency: currencyValue.toUpperCase(),
+        showBalanceInName: document.getElementById('showBalanceInNameInput').value === 'true',
+        vehicleSyncEnabled: document.getElementById('vehicleSyncInput').value === 'true',
+        categoriesText: dedupeTags(categoryTags).join('\n'),
+        chatStyleTagsText: dedupeTags(styleTags).join('\n'),
+        recurringItemsText: recurringRowsToText(recurringRows),
+      };
+      setStatus('儲存中...');
+      try {
+        const res = await fetch(`/api/channel/${channelId}/settings`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '儲存失敗');
+        setStatus('已儲存', false);
+      } catch (error) {
+        setStatus(`儲存失敗：${error.message}`, true);
+      }
+    }
+
+    function exportData(format) {
+      window.location.href = `/api/channel/${channelId}/export?format=${encodeURIComponent(format)}`;
+    }
+
+    async function importData() {
+      const fileInput = document.getElementById('importFileInput');
+      const modeInput = document.getElementById('importModeInput');
+      const file = fileInput?.files?.[0];
+      if (!file) {
+        setStatus('請先選擇要匯入的檔案');
+        return;
+      }
+      const lower = file.name.toLowerCase();
+      const format = lower.endsWith('.csv') ? 'csv' : 'json';
+      try {
+        setStatus('匯入中...');
+        const text = await file.text();
+        const res = await fetch(`/api/channel/${channelId}/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            format,
+            mode: modeInput?.value || 'append',
+            data: text,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '匯入失敗');
+        setStatus(`匯入完成，共 ${data.importedCount || 0} 筆`);
+        await loadData();
+      } catch (error) {
+        setStatus(`匯入失敗：${error.message}`);
+      }
+    }
+
+    async function editTransaction(id) {
+      const amount = prompt('新金額（數字）');
+      if (amount === null) return;
+      const category = prompt('新分類');
+      if (category === null) return;
+      const note = prompt('新備註（可留空）');
+      if (note === null) return;
+      const type = prompt('類型（expense 或 income）', 'expense');
+      if (type === null) return;
+      try {
+        const res = await fetch(`/api/channel/${channelId}/transactions/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: Number(amount),
+            category,
+            note,
+            type: type === 'income' ? 'income' : 'expense',
+            timestamp: new Date().toISOString(),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '更新失敗');
+        await loadData();
+      } catch (error) {
+        alert(`更新失敗：${error.message}`);
+      }
+    }
+
+    async function deleteTransaction(id) {
+      if (!confirm('確定要刪除這筆記錄嗎？')) return;
+      try {
+        const res = await fetch(`/api/channel/${channelId}/transactions/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '刪除失敗');
+        await loadData();
+      } catch (error) {
+        alert(`刪除失敗：${error.message}`);
+      }
+    }
+
+    function renderTransactionsList(transactions, mode) {
+      if (!transactions.length) return '<div class="loading">這個月份還沒有記錄</div>';
+
+      const groups = new Map();
+      transactions.forEach((t) => {
+        const key = mode === 'by_category'
+          ? String(t.category || '未分類')
+          : new Date(t.timestamp).toLocaleDateString('zh-TW');
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(t);
+      });
+
+      let html = '';
+      Array.from(groups.entries()).forEach(([groupKey, list]) => {
+        const groupStyle = mode === 'by_category'
+          ? getCategoryBadgeStyle(groupKey)
+          : 'background:#1b1b34;color:#dbeafe;border-color:#2a2a4a;';
+        html += `<li class="transaction group-header"><div class="t-info"><strong style="${groupStyle};padding:4px 8px;border-radius:999px;border:1px solid #2a2a4a;display:inline-block;">${escapeHtml(groupKey)}</strong></div><div class="t-time">${list.length} 筆</div></li>`;
+        list.forEach((t) => {
+          const amountPrefix = t.type === 'income' ? '+' : '-';
+          const date = new Date(t.timestamp).toLocaleString('zh-TW');
+          const categoryStyle = getCategoryBadgeStyle(t.category, t.type);
+          html += `
+            <li class="transaction">
+              <div class="t-info">
+                <span class="t-category" style="${categoryStyle}">${escapeHtml(t.category)}</span>
+                <div class="t-note">${escapeHtml(t.note || '-')}</div>
+                <div class="t-time">${escapeHtml(date)}</div>
+              </div>
+              <div class="t-amount ${escapeHtml(t.type)}">${amountPrefix}NT$ ${Number(t.amount).toLocaleString()}</div>
+              <div class="t-actions">
+                <button class="btn" onclick="editTransaction(${t.id})">編輯</button>
+                <button class="btn btn-danger" onclick="deleteTransaction(${t.id})">刪除</button>
+              </div>
+            </li>
+          `;
+        });
+      });
+      return html;
+    }
+
+    function getCategoryBadgeStyle(category, type = 'expense') {
+      const text = String(category || '未分類').trim();
+      const fixedMap = {
+        '餐飲': ['#6d28d9', '#f3e8ff'],
+        '交通': ['#1d4ed8', '#dbeafe'],
+        '購物': ['#be185d', '#fce7f3'],
+        '娛樂': ['#ea580c', '#ffedd5'],
+        '房租/帳單': ['#0f766e', '#ccfbf1'],
+        '醫療': ['#047857', '#d1fae5'],
+        '教育': ['#7c2d12', '#ffedd5'],
+        '投資': ['#065f46', '#d1fae5'],
+        '禮物': ['#9d174d', '#fce7f3'],
+        '其他': ['#374151', '#f3f4f6'],
+        '薪資': ['#15803d', '#dcfce7'],
+        '兼職': ['#166534', '#dcfce7'],
+        '被動收入': ['#14532d', '#dcfce7'],
+        '紅包': ['#b91c1c', '#fee2e2'],
+        '生活費': ['#7e22ce', '#f3e8ff'],
+      };
+
+      if (fixedMap[text]) {
+        const [bg, fg] = fixedMap[text];
+        return `background:${bg};color:${fg};border-color:${bg};`;
+      }
+
+      const palette = [
+        ['#334155', '#e2e8f0'],
+        ['#1e3a8a', '#dbeafe'],
+        ['#4c1d95', '#ede9fe'],
+        ['#7f1d1d', '#fee2e2'],
+        ['#14532d', '#dcfce7'],
+      ];
+      const key = `${text}|${type}`;
+      const hash = Array.from(key).reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 997, 0);
+      const [bg, fg] = palette[hash % palette.length];
+      return `background:${bg};color:${fg};border-color:${bg};`;
+    }
+
+    function renderPieCharts(analytics) {
+      const expenseCtx = document.getElementById('expensePie');
+      const incomeCtx = document.getElementById('incomePie');
+      if (!expenseCtx || !incomeCtx || !window.Chart) return;
+
+      const expenseLabels = (analytics.expenseByCategory || []).map((x) => x.category);
+      const expenseValues = (analytics.expenseByCategory || []).map((x) => x.total);
+      const incomeLabels = (analytics.incomeByCategory || []).map((x) => x.category);
+      const incomeValues = (analytics.incomeByCategory || []).map((x) => x.total);
+
+      if (chartExpense) chartExpense.destroy();
+      if (chartIncome) chartIncome.destroy();
+
+      chartExpense = new Chart(expenseCtx, {
+        type: 'pie',
+        data: { labels: expenseLabels, datasets: [{ data: expenseValues }] },
+        options: { plugins: { title: { display: true, text: '支出分類占比' }, legend: { labels: { color: '#e0e0e0' } } } },
+      });
+      chartIncome = new Chart(incomeCtx, {
+        type: 'pie',
+        data: { labels: incomeLabels, datasets: [{ data: incomeValues }] },
+        options: { plugins: { title: { display: true, text: '收入分類占比' }, legend: { labels: { color: '#e0e0e0' } } } },
+      });
+    }
+
+    function changeMonthPart(part, value) {
+      const current = getMonthParts(selectedMonth || getDefaultMonthText()) || getMonthParts(getDefaultMonthText());
+      const year = part === 'year' ? Number(value) : Number(current.year);
+      const month = part === 'month' ? Number(value) : Number(current.month);
+      selectedMonth = `${year}-${String(month).padStart(2, '0')}`;
+      loadData();
+    }
+
+    function changeListMode(value) {
+      listMode = value === 'by_category' ? 'by_category' : 'by_date';
+      loadData();
+    }
+
     loadData();
+    window.editTransaction = editTransaction;
+    window.deleteTransaction = deleteTransaction;
+    window.saveSettings = saveSettings;
+    window.toggleSettingsPanel = toggleSettingsPanel;
+    window.addCategoryTag = addCategoryTag;
+    window.removeCategoryTag = removeCategoryTag;
+    window.addStyleTag = addStyleTag;
+    window.removeStyleTag = removeStyleTag;
+    window.addRecurringRow = addRecurringRow;
+    window.removeRecurringRow = removeRecurringRow;
+    window.updateRecurringRow = updateRecurringRow;
+    window.importData = importData;
+    window.exportData = exportData;
+    window.changeMonthPart = changeMonthPart;
+    window.changeListMode = changeListMode;
   </script>
 </body>
 </html>

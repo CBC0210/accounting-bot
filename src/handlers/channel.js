@@ -1,4 +1,4 @@
-const { getDatabase } = require('../db/database');
+const { getChannelSettings, getChannelNetBalance } = require('../db/queries');
 const { EmbedBuilder } = require('discord.js');
 
 function getChannelIdFromChannel(channel) {
@@ -34,4 +34,40 @@ async function sendChannelInfoMessage(channel) {
   return message;
 }
 
-module.exports = { sendChannelInfoMessage };
+function normalizeChannelName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/-+/g, '-')
+    .slice(0, 100);
+}
+
+function formatBalanceNumber(balance) {
+  const rounded = Math.round(balance);
+  return `${rounded}`;
+}
+
+async function updateChannelBalanceName(channel) {
+  if (!channel || typeof channel.setName !== 'function') return false;
+
+  const settings = getChannelSettings(channel.id);
+  const title = settings?.user_title;
+  const showBalanceInName = Number(settings?.show_balance_in_name ?? 1) === 1;
+  if (!title || !showBalanceInName) return false;
+
+  const balance = getChannelNetBalance(channel.id);
+  const nextName = normalizeChannelName(`${title}_${formatBalanceNumber(balance)}`);
+  if (!nextName) return false;
+  if (channel.name === nextName) return true;
+
+  try {
+    await channel.setName(nextName, '記帳異動後同步更新餘額');
+    return true;
+  } catch (error) {
+    console.log('更新頻道名稱失敗:', error.message);
+    return false;
+  }
+}
+
+module.exports = { sendChannelInfoMessage, updateChannelBalanceName };

@@ -1,9 +1,12 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { handleMessage } = require('./handlers/message');
-const { handleSlashCommand } = require('./handlers/slash');
+const { handleSlashCommand, handleComponentInteraction } = require('./handlers/slash');
 const { initDatabase } = require('./db/database');
 const { sendChannelInfoMessage } = require('./handlers/channel');
+const { startRecurringScheduler } = require('./services/recurring');
+const { startDailyReminderScheduler } = require('./services/reminder');
+const { startChannelBalanceSyncScheduler } = require('./services/channel-balance-sync');
 
 const client = new Client({
   intents: [
@@ -15,11 +18,16 @@ const client = new Client({
 
 // 處理斜線指令
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  console.log(`收到指令: ${interaction.commandName}`);
-
   try {
-    await handleSlashCommand(interaction);
+    if (interaction.isChatInputCommand()) {
+      console.log(`收到指令: ${interaction.commandName}`);
+      await handleSlashCommand(interaction);
+      return;
+    }
+
+    if (interaction.isButton()) {
+      await handleComponentInteraction(interaction);
+    }
   } catch (error) {
     console.error('處理指令失敗:', error);
     try {
@@ -49,8 +57,11 @@ client.on(Events.ClientReady, () => {
 async function startBot() {
   try {
     await initDatabase();
+    startRecurringScheduler();
     console.log('資料庫就緒');
     await client.login(process.env.DISCORD_TOKEN);
+    startDailyReminderScheduler(client);
+    startChannelBalanceSyncScheduler(client);
     console.log('Discord 登入成功');
   } catch (error) {
     console.error('啟動失敗:', error);

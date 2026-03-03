@@ -61,8 +61,40 @@ const commands = [
   {
     name: '查詢',
     name_localizations: { 'en-US': 'balance' },
-    description: '查詢目前餘額',
-    description_localizations: { 'en-US': 'Check current balance' },
+    description: '查詢餘額或區間統計',
+    description_localizations: { 'en-US': 'Check balance or range summary' },
+    options: [
+      {
+        name: '範圍',
+        name_localizations: { 'en-US': 'range' },
+        description: '查詢範圍（預設本月）',
+        description_localizations: { 'en-US': 'Range to query (default month)' },
+        type: 3,
+        required: false,
+        choices: [
+          { name: '本日', name_localizations: { 'en-US': 'today' }, value: 'today' },
+          { name: '本週', name_localizations: { 'en-US': 'week' }, value: 'week' },
+          { name: '本月', name_localizations: { 'en-US': 'month' }, value: 'month' },
+          { name: '自訂', name_localizations: { 'en-US': 'custom' }, value: 'custom' },
+        ],
+      },
+      {
+        name: '起日',
+        name_localizations: { 'en-US': 'start_date' },
+        description: '自訂查詢起日（YYYY-MM-DD）',
+        description_localizations: { 'en-US': 'Custom range start date (YYYY-MM-DD)' },
+        type: 3,
+        required: false,
+      },
+      {
+        name: '迄日',
+        name_localizations: { 'en-US': 'end_date' },
+        description: '自訂查詢迄日（YYYY-MM-DD）',
+        description_localizations: { 'en-US': 'Custom range end date (YYYY-MM-DD)' },
+        type: 3,
+        required: false,
+      },
+    ],
   },
   {
     name: '統計',

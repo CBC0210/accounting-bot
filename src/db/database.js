@@ -4,6 +4,8 @@ const path = require('path');
 
 let db;
 let dbPath;
+let SQLInstance;
+let dbMtimeMs = 0;
 
 function hasColumn(tableName, columnName) {
   const stmt = db.prepare(`PRAGMA table_info(${tableName})`);
@@ -40,10 +42,34 @@ function migrateSchema() {
   if (!hasColumn('channel_settings', 'user_gender')) {
     db.run(`ALTER TABLE channel_settings ADD COLUMN user_gender TEXT`);
   }
+  if (!hasColumn('channel_settings', 'user_title')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN user_title TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'categories_text')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN categories_text TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'currency')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN currency TEXT DEFAULT 'TWD'`);
+  }
+  if (!hasColumn('channel_settings', 'ledgers_text')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN ledgers_text TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'show_balance_in_name')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN show_balance_in_name INTEGER DEFAULT 1`);
+  }
+  if (!hasColumn('channel_settings', 'vehicle_sync_enabled')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN vehicle_sync_enabled INTEGER DEFAULT 0`);
+  }
+  if (!hasColumn('channel_settings', 'recurring_items_text')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN recurring_items_text TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'chat_style_tags_text')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN chat_style_tags_text TEXT`);
+  }
 }
 
 async function initDatabase() {
-  const SQL = await initSqlJs();
+  SQLInstance = await initSqlJs();
   
   dbPath = process.env.DB_PATH || './data/accounting.db';
   
@@ -54,12 +80,7 @@ async function initDatabase() {
   }
   
   // 載入或創建資料庫
-  if (fs.existsSync(dbPath)) {
-    const fileBuffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
-  }
+  loadDatabaseFromDisk();
   
   // 建立資料表
   db.run(`
@@ -88,6 +109,14 @@ async function initDatabase() {
       split_books INTEGER DEFAULT 0,
       setup_completed_at TEXT,
       user_gender TEXT,
+      user_title TEXT,
+      categories_text TEXT,
+      currency TEXT DEFAULT 'TWD',
+      ledgers_text TEXT,
+      show_balance_in_name INTEGER DEFAULT 1,
+      vehicle_sync_enabled INTEGER DEFAULT 0,
+      recurring_items_text TEXT,
+      chat_style_tags_text TEXT,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
@@ -101,6 +130,29 @@ async function initDatabase() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS recurring_executions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id TEXT NOT NULL,
+      item_key TEXT NOT NULL,
+      due_at TEXT NOT NULL,
+      transaction_id INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(channel_id, item_key, due_at)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS daily_reminder_executions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id TEXT NOT NULL,
+      reminder_date TEXT NOT NULL,
+      reminder_time TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(channel_id, reminder_date, reminder_time)
+    )
+  `);
+
   migrateSchema();
   
   // 儲存資料庫
@@ -110,11 +162,40 @@ async function initDatabase() {
   return db;
 }
 
+function loadDatabaseFromDisk() {
+  if (!SQLInstance) {
+    throw new Error('SQL.js 尚未初始化');
+  }
+  if (db) {
+    db.close();
+  }
+
+  if (dbPath && fs.existsSync(dbPath)) {
+    const fileBuffer = fs.readFileSync(dbPath);
+    db = new SQLInstance.Database(fileBuffer);
+    dbMtimeMs = fs.statSync(dbPath).mtimeMs;
+    return;
+  }
+
+  db = new SQLInstance.Database();
+  dbMtimeMs = 0;
+}
+
+function ensureFreshDatabase() {
+  if (!db || !dbPath || !fs.existsSync(dbPath)) return;
+
+  const mtimeMs = fs.statSync(dbPath).mtimeMs;
+  if (mtimeMs !== dbMtimeMs) {
+    loadDatabaseFromDisk();
+  }
+}
+
 function saveDatabase() {
   if (db && dbPath) {
     const data = db.export();
     const buffer = Buffer.from(data);
     fs.writeFileSync(dbPath, buffer);
+    dbMtimeMs = fs.statSync(dbPath).mtimeMs;
   }
 }
 
@@ -124,11 +205,13 @@ function getDatabase() {
 
 // 確保每次改動後儲存
 function run(sql, params = []) {
+  ensureFreshDatabase();
   db.run(sql, params);
   saveDatabase();
 }
 
 function get(sql, params = []) {
+  ensureFreshDatabase();
   const stmt = db.prepare(sql);
   stmt.bind(params);
   if (stmt.step()) {
@@ -141,6 +224,7 @@ function get(sql, params = []) {
 }
 
 function all(sql, params = []) {
+  ensureFreshDatabase();
   const stmt = db.prepare(sql);
   stmt.bind(params);
   const results = [];
