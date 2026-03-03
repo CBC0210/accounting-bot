@@ -195,8 +195,15 @@ async function initDatabase() {
     )
   `);
 
+  db.run(`DROP TRIGGER IF EXISTS trg_tx_insert_event`);
+  db.run(`DROP TRIGGER IF EXISTS trg_tx_update_event`);
+  db.run(`DROP TRIGGER IF EXISTS trg_tx_delete_event`);
+  db.run(`DROP TRIGGER IF EXISTS trg_settings_insert_event`);
+  db.run(`DROP TRIGGER IF EXISTS trg_settings_update_event`);
+  db.run(`DROP TRIGGER IF EXISTS trg_settings_delete_event`);
+
   db.run(`
-    CREATE TRIGGER IF NOT EXISTS trg_tx_insert_event
+    CREATE TRIGGER trg_tx_insert_event
     AFTER INSERT ON transactions
     BEGIN
       INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
@@ -204,13 +211,17 @@ async function initDatabase() {
         NEW.channel_id,
         'transactions',
         'insert',
-        'id=' || NEW.id,
+        'id=' || NEW.id
+          || ' 類型=' || COALESCE(NEW.type, '')
+          || ' 金額=' || COALESCE(NEW.amount, 0)
+          || ' 分類=' || COALESCE(NEW.category, '未分類')
+          || ' 備註=' || COALESCE(NEW.note, ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
   `);
   db.run(`
-    CREATE TRIGGER IF NOT EXISTS trg_tx_update_event
+    CREATE TRIGGER trg_tx_update_event
     AFTER UPDATE ON transactions
     BEGIN
       INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
@@ -218,13 +229,17 @@ async function initDatabase() {
         NEW.channel_id,
         'transactions',
         'update',
-        'id=' || NEW.id,
+        'id=' || NEW.id
+          || ' 金額:' || COALESCE(OLD.amount, 0) || '->' || COALESCE(NEW.amount, 0)
+          || ' 類型:' || COALESCE(OLD.type, '') || '->' || COALESCE(NEW.type, '')
+          || ' 分類:' || COALESCE(OLD.category, '未分類') || '->' || COALESCE(NEW.category, '未分類')
+          || ' 備註:' || COALESCE(OLD.note, '') || '->' || COALESCE(NEW.note, ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
   `);
   db.run(`
-    CREATE TRIGGER IF NOT EXISTS trg_tx_delete_event
+    CREATE TRIGGER trg_tx_delete_event
     AFTER DELETE ON transactions
     BEGIN
       INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
@@ -232,14 +247,18 @@ async function initDatabase() {
         OLD.channel_id,
         'transactions',
         'delete',
-        'id=' || OLD.id,
+        'id=' || OLD.id
+          || ' 類型=' || COALESCE(OLD.type, '')
+          || ' 金額=' || COALESCE(OLD.amount, 0)
+          || ' 分類=' || COALESCE(OLD.category, '未分類')
+          || ' 備註=' || COALESCE(OLD.note, ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
   `);
 
   db.run(`
-    CREATE TRIGGER IF NOT EXISTS trg_settings_insert_event
+    CREATE TRIGGER trg_settings_insert_event
     AFTER INSERT ON channel_settings
     BEGIN
       INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
@@ -247,13 +266,16 @@ async function initDatabase() {
         NEW.channel_id,
         'channel_settings',
         'insert',
-        'channel=' || NEW.channel_id,
+        'type=' || COALESCE(NEW.type, 'personal')
+          || ' title=' || COALESCE(NEW.user_title, '')
+          || ' budget=' || COALESCE(NEW.budget, 0)
+          || ' reminder=' || COALESCE(NEW.reminder_time, ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
   `);
   db.run(`
-    CREATE TRIGGER IF NOT EXISTS trg_settings_update_event
+    CREATE TRIGGER trg_settings_update_event
     AFTER UPDATE ON channel_settings
     BEGIN
       INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
@@ -261,13 +283,16 @@ async function initDatabase() {
         NEW.channel_id,
         'channel_settings',
         'update',
-        'channel=' || NEW.channel_id,
+        'budget:' || COALESCE(OLD.budget, 0) || '->' || COALESCE(NEW.budget, 0)
+          || ' reminder:' || COALESCE(OLD.reminder_time, '') || '->' || COALESCE(NEW.reminder_time, '')
+          || ' title:' || COALESCE(OLD.user_title, '') || '->' || COALESCE(NEW.user_title, '')
+          || ' showBalance:' || COALESCE(OLD.show_balance_in_name, 1) || '->' || COALESCE(NEW.show_balance_in_name, 1),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
   `);
   db.run(`
-    CREATE TRIGGER IF NOT EXISTS trg_settings_delete_event
+    CREATE TRIGGER trg_settings_delete_event
     AFTER DELETE ON channel_settings
     BEGIN
       INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
@@ -275,7 +300,9 @@ async function initDatabase() {
         OLD.channel_id,
         'channel_settings',
         'delete',
-        'channel=' || OLD.channel_id,
+        'type=' || COALESCE(OLD.type, 'personal')
+          || ' title=' || COALESCE(OLD.user_title, '')
+          || ' budget=' || COALESCE(OLD.budget, 0),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;

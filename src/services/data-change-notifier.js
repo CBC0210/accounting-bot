@@ -22,6 +22,39 @@ function buildEventLabel(row) {
   return `${entity}${action}`;
 }
 
+function prettifySummary(summary) {
+  const text = String(summary || '').trim();
+  if (!text) return '資料變更';
+  const normalized = text
+    .replace(/\s+/g, ' ')
+    .replace(/->/g, ' → ')
+    .slice(0, 220);
+
+  const tokens = normalized.split(' ');
+  const map = {};
+  tokens.forEach((token) => {
+    const idx = token.indexOf('=');
+    if (idx > 0) {
+      map[token.slice(0, idx)] = token.slice(idx + 1);
+    }
+  });
+
+  if (map.id && map['類型'] && map['金額']) {
+    const typeText = map['類型'] === 'income' ? '收入' : map['類型'] === 'expense' ? '支出' : map['類型'];
+    const amount = Number(map['金額']);
+    const amountText = Number.isFinite(amount) ? `NT$ ${amount.toLocaleString()}` : map['金額'];
+    const categoryText = map['分類'] ? `｜分類 ${map['分類']}` : '';
+    const noteText = map['備註'] ? `｜備註 ${map['備註']}` : '';
+    return `ID ${map.id}｜${typeText} ${amountText}${categoryText}${noteText}`;
+  }
+
+  return normalized;
+}
+
+function formatChangeLine(row) {
+  return `• ${buildEventLabel(row)}\n  ${prettifySummary(row.summary)}`;
+}
+
 async function tickDataChangeNotifier(client) {
   if (!client) return;
 
@@ -62,15 +95,20 @@ async function tickDataChangeNotifier(client) {
       }
 
       const latest = events.slice(-6);
-      const lines = latest.map((row) => `- ${buildEventLabel(row)}（${row.summary || '資料變更'}）`);
+      const lines = latest.map((row) => formatChangeLine(row));
       const hiddenCount = Math.max(0, events.length - latest.length);
-      if (hiddenCount > 0) lines.push(`- 另外 ${hiddenCount} 筆變更`);
+      if (hiddenCount > 0) lines.push(`• 另外 ${hiddenCount} 筆變更`);
+      const dashboardBaseUrl = process.env.DASHBOARD_BASE_URL || 'http://localhost:3000';
+      const dashboardUrl = `${dashboardBaseUrl.replace(/\/$/, '')}/${channelId}`;
 
       const embed = new EmbedBuilder()
         .setColor(0xf59e0b)
         .setTitle('🛠️ 外部資料變更通知')
-        .setDescription('偵測到非 Bot 內部流程的資料異動。')
-        .addFields({ name: '變更內容', value: lines.join('\n'), inline: false })
+        .setDescription('偵測到外部資料異動，已同步顯示重點。')
+        .addFields(
+          { name: '變更內容', value: lines.join('\n'), inline: false },
+          { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false }
+        )
         .setTimestamp();
 
       await channel.send({ embeds: [embed] });

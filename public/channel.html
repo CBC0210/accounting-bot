@@ -117,7 +117,46 @@
     .t-actions {
       display: flex;
       gap: 8px;
+      position: relative;
     }
+    .tx-menu { position: relative; }
+    .tx-menu summary { list-style: none; user-select: none; }
+    .tx-menu summary::-webkit-details-marker { display: none; }
+    .btn-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      padding: 0;
+    }
+    .tx-menu-panel {
+      position: absolute;
+      right: 0;
+      top: 36px;
+      min-width: 110px;
+      background: #111827;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      padding: 6px;
+      z-index: 20;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    }
+    .tx-menu-panel button {
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .tx-menu-panel button:hover { background: #1f2937; }
+    .tx-menu-panel button.danger { color: #fca5a5; }
 
     .btn {
       border: 1px solid #2a2a4a;
@@ -251,6 +290,102 @@
       gap: 8px;
       align-items: center;
     }
+    .month-filter-card {
+      background: linear-gradient(160deg, #1a1a2e 0%, #16162a 100%);
+      border-color: #31315a;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+    .month-filter-row {
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .month-picker-wrap {
+      gap: 10px;
+    }
+    .month-picker {
+      position: relative;
+      min-width: 112px;
+    }
+    .month-picker span {
+      display: block;
+      color: #9ca3af;
+      font-size: 0.75rem;
+      margin-bottom: 4px;
+      letter-spacing: 0.02em;
+    }
+    .month-picker select {
+      appearance: none;
+      width: 100%;
+      background: #0f1329;
+      border: 1px solid #334155;
+      color: #dbeafe;
+      border-radius: 999px;
+      padding: 8px 34px 8px 12px;
+      font-size: 0.9rem;
+      line-height: 1.2;
+    }
+    .month-picker::after {
+      content: '▾';
+      position: absolute;
+      right: 12px;
+      bottom: 8px;
+      color: #93c5fd;
+      pointer-events: none;
+      font-size: 0.8rem;
+    }
+    .month-picker select:hover,
+    .month-picker select:focus {
+      border-color: #38bdf8;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
+    }
+    .month-global-label {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .section-hint {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 4px;
+    }
+    .budget-progress-wrap {
+      margin-top: 14px;
+      background: #0d0d1a;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .budget-progress-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.9rem;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .budget-progress-track {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: #1f2937;
+      overflow: hidden;
+    }
+    .budget-progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #22c55e, #eab308, #ef4444);
+      width: 0%;
+      transition: width 0.2s ease;
+    }
+    .budget-progress-meta {
+      margin-top: 8px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
 
     .segmented {
       display: inline-flex;
@@ -284,6 +419,26 @@
       padding: 16px;
       border-radius: 8px;
       color: var(--red);
+    }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 40;
+      padding: 16px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-card {
+      width: min(620px, 100%);
+      max-height: 90vh;
+      overflow: auto;
+      background: #111827;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      padding: 16px;
     }
 
     .group-header {
@@ -324,6 +479,16 @@
       }
       .month-select-row {
         width: 100%;
+      }
+      .month-filter-row {
+        gap: 10px;
+      }
+      .month-picker-wrap {
+        width: 100%;
+      }
+      .month-picker {
+        flex: 1;
+        min-width: 0;
       }
       .month-select-row select {
         flex: 1;
@@ -384,6 +549,39 @@
       <div class="loading">載入中...</div>
     </div>
   </div>
+  <div id="txEditModal" class="modal-backdrop" onclick="onModalBackdropClick(event)">
+    <div class="modal-card">
+      <div class="toggle-row" style="margin-bottom: 12px;">
+        <h2 style="margin:0;">✏️ 編輯條目</h2>
+        <button class="btn" onclick="closeEditModal()">關閉</button>
+      </div>
+      <div class="form-grid" style="margin-top:0;">
+        <div class="form-field">
+          <label>金額</label>
+          <input id="editAmount" type="text" inputmode="numeric" placeholder="例如 135" />
+        </div>
+        <div class="form-field">
+          <label>類型</label>
+          <select id="editType">
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>類別</label>
+          <select id="editCategory"></select>
+        </div>
+        <div class="form-field full">
+          <label>備註</label>
+          <input id="editNote" type="text" placeholder="可留空" />
+        </div>
+      </div>
+      <div class="actions-row" style="margin-top:14px;">
+        <button class="btn" onclick="submitEditTransaction()">儲存修改</button>
+      </div>
+      <div id="editTxStatus" class="status-text"></div>
+    </div>
+  </div>
   
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
@@ -403,6 +601,8 @@
     let chartIncome = null;
     let listMode = 'by_date';
     let selectedMonth = '';
+    let currentMonthTransactions = [];
+    let editingTransactionId = null;
 
     function escapeHtml(str) {
       return String(str ?? '')
@@ -636,6 +836,11 @@
         const settlementPayload = await settlementRes.json();
         const monthTransactions = Array.isArray(monthTxPayload.transactions) ? monthTxPayload.transactions : [];
         const settlements = Array.isArray(settlementPayload.settlements) ? settlementPayload.settlements : [];
+        const currentMonthSettlement = settlements.find(
+          (row) => Number(row.year) === Number(monthParts.year) && Number(row.month) === Number(monthParts.month)
+        );
+        const filteredSettlements = currentMonthSettlement ? [currentMonthSettlement] : [];
+        currentMonthTransactions = monthTransactions;
 
         if (data.error) {
           document.getElementById('app').innerHTML = `<div class="error">錯誤: ${escapeHtml(data.error)}</div>`;
@@ -656,8 +861,16 @@
 
         const balanceClass = data.balance >= 0 ? 'positive' : 'negative';
         const balancePrefix = data.balance >= 0 ? '+' : '';
-        const incomeTotal = data.transactions.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-        const expenseTotal = data.transactions.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+        const monthIncome = Number(analytics?.totals?.income || 0);
+        const monthExpense = Number(analytics?.totals?.expense || 0);
+        const monthNet = Number(analytics?.totals?.net || 0);
+        const budgetValue = Number(settings?.budget || 0);
+        const budgetPercentRaw = budgetValue > 0 ? (monthExpense / budgetValue) * 100 : 0;
+        const budgetPercent = Number.isFinite(budgetPercentRaw) ? Math.max(0, budgetPercentRaw) : 0;
+        const budgetPercentDisplay = Math.round(budgetPercent * 10) / 10;
+        const budgetProgressWidth = Math.min(100, Math.max(0, budgetPercent));
+        const budgetRemaining = Math.max(0, budgetValue - monthExpense);
+        const monthLabel = `${monthParts.year}年${monthParts.month}月`;
 
         const transactionsHtml = renderTransactionsList(monthTransactions, listMode);
 
@@ -667,12 +880,56 @@
             <div class="balance ${balanceClass}">${balancePrefix}NT$ ${data.balance.toLocaleString()}</div>
             <div class="stats">
               <div class="stat">
-                <div class="stat-value income">+NT$ ${incomeTotal.toLocaleString()}</div>
-                <div class="stat-label">收入</div>
+                <div class="stat-value income">+NT$ ${monthIncome.toLocaleString()}</div>
+                <div class="stat-label">${monthLabel} 收入</div>
               </div>
               <div class="stat">
-                <div class="stat-value expense">-NT$ ${expenseTotal.toLocaleString()}</div>
-                <div class="stat-label">支出</div>
+                <div class="stat-value expense">-NT$ ${monthExpense.toLocaleString()}</div>
+                <div class="stat-label">${monthLabel} 支出</div>
+              </div>
+            </div>
+            <div class="section-hint">${monthLabel} 淨額：NT$ ${monthNet.toLocaleString()}</div>
+          </div>
+
+          <div class="card month-filter-card">
+            <div class="toggle-row month-filter-row">
+              <div>
+                <h2 style="margin: 0;">🗓️ 月份</h2>
+              </div>
+              <div class="month-select-row month-picker-wrap">
+                <label class="month-picker">
+                  <span>年份</span>
+                  <select id="yearPicker" onchange="changeMonthPart('year', this.value)">
+                    ${buildYearOptions(monthParts.year)}
+                  </select>
+                </label>
+                <label class="month-picker">
+                  <span>月份</span>
+                  <select id="monthPicker" onchange="changeMonthPart('month', this.value)">
+                    ${buildMonthOptions(monthParts.month)}
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="toggle-row">
+              <h2 style="margin: 0;">📉 月預算使用量</h2>
+              <div class="month-global-label">${monthLabel}</div>
+            </div>
+            <div class="budget-progress-wrap" style="margin-top: 0;">
+              <div class="budget-progress-title">
+                <span>預算使用率</span>
+                <strong>${budgetValue > 0 ? `${budgetPercentDisplay}%` : '未設定預算'}</strong>
+              </div>
+              <div class="budget-progress-track">
+                <div class="budget-progress-fill" style="width:${budgetProgressWidth}%;"></div>
+              </div>
+              <div class="budget-progress-meta">
+                <span>已用 NT$ ${monthExpense.toLocaleString()}</span>
+                <span>預算 NT$ ${budgetValue.toLocaleString()}</span>
+                <span>剩餘 NT$ ${budgetRemaining.toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -680,26 +937,19 @@
           <div class="card">
             <div class="toggle-row">
               <h2 style="margin: 0;">📊 月分析</h2>
-              <div class="month-select-row">
-                <select id="yearPicker" onchange="changeMonthPart('year', this.value)">
-                  ${buildYearOptions(monthParts.year)}
-                </select>
-                <select id="monthPicker" onchange="changeMonthPart('month', this.value)">
-                  ${buildMonthOptions(monthParts.month)}
-                </select>
-              </div>
+              <div class="month-global-label">${monthLabel}</div>
             </div>
             <div class="stats">
               <div class="stat">
-                <div class="stat-value income">+NT$ ${Number(analytics?.totals?.income || 0).toLocaleString()}</div>
-                <div class="stat-label">本月收入</div>
+                <div class="stat-value income">+NT$ ${monthIncome.toLocaleString()}</div>
+                <div class="stat-label">收入</div>
               </div>
               <div class="stat">
-                <div class="stat-value expense">-NT$ ${Number(analytics?.totals?.expense || 0).toLocaleString()}</div>
-                <div class="stat-label">本月支出</div>
+                <div class="stat-value expense">-NT$ ${monthExpense.toLocaleString()}</div>
+                <div class="stat-label">支出</div>
               </div>
             </div>
-            <div style="margin-top: 10px; color: var(--muted);">本月結餘：NT$ ${Number(analytics?.totals?.net || 0).toLocaleString()}</div>
+            <div style="margin-top: 10px; color: var(--muted);">${monthLabel} 結餘：NT$ ${monthNet.toLocaleString()}</div>
             <div class="stats" style="margin-top: 16px;">
               <div class="stat"><canvas id="expensePie" height="220"></canvas></div>
               <div class="stat"><canvas id="incomePie" height="220"></canvas></div>
@@ -714,15 +964,16 @@
                 <button class="${listMode === 'by_category' ? 'active' : ''}" onclick="changeListMode('by_category')">依分類</button>
               </div>
             </div>
-            <div class="status-text">目前模式：${listMode === 'by_date' ? '依日期（每天）' : '依分類（標籤）'}</div>
+            <div class="status-text">${monthLabel} · 目前模式：${listMode === 'by_date' ? '依日期（每天）' : '依分類（標籤）'}</div>
             <ul class="transactions">${transactionsHtml}</ul>
           </div>
 
           <div class="card">
             <div class="toggle-row">
               <h2 style="margin: 0;">🧾 月結記錄</h2>
+              <div class="month-global-label">${monthLabel}</div>
             </div>
-            ${renderSettlementHistory(settlements)}
+            ${renderSettlementHistory(filteredSettlements, monthParts)}
           </div>
 
           <div class="card">
@@ -982,32 +1233,76 @@
       }
     }
 
-    async function editTransaction(id) {
-      const amount = prompt('新金額（數字）');
-      if (amount === null) return;
-      const category = prompt('新分類');
-      if (category === null) return;
-      const note = prompt('新備註（可留空）');
-      if (note === null) return;
-      const type = prompt('類型（expense 或 income）', 'expense');
-      if (type === null) return;
+    function findTransactionById(id) {
+      return (currentMonthTransactions || []).find((item) => Number(item.id) === Number(id)) || null;
+    }
+
+    function renderEditCategoryOptions(currentCategory = '') {
+      const select = document.getElementById('editCategory');
+      if (!select) return;
+      const selected = String(currentCategory || '').trim() || '未分類';
+      const baseTags = dedupeTags([...(categoryTags || []), selected, '未分類']);
+      select.innerHTML = baseTags
+        .map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`)
+        .join('');
+      select.value = selected;
+    }
+
+    function openEditTransaction(id) {
+      const tx = findTransactionById(id);
+      if (!tx) {
+        alert('找不到該筆交易，請重整後再試');
+        return;
+      }
+      editingTransactionId = Number(id);
+      document.getElementById('editAmount').value = String(Number(tx.amount || 0));
+      renderEditCategoryOptions(String(tx.category || ''));
+      document.getElementById('editNote').value = String(tx.note || '');
+      document.getElementById('editType').value = tx.type === 'income' ? 'income' : 'expense';
+      document.getElementById('editTxStatus').textContent = '';
+      document.getElementById('txEditModal').classList.add('open');
+    }
+
+    function closeEditModal() {
+      editingTransactionId = null;
+      document.getElementById('txEditModal').classList.remove('open');
+    }
+
+    function onModalBackdropClick(event) {
+      if (event.target && event.target.id === 'txEditModal') closeEditModal();
+    }
+
+    async function submitEditTransaction() {
+      if (!editingTransactionId) return;
+      const amountText = String(document.getElementById('editAmount').value || '').trim().replace(/[,\s]/g, '');
+      const amountValue = Number(amountText);
+      if (!Number.isFinite(amountValue) || amountValue <= 0) {
+        document.getElementById('editTxStatus').textContent = '金額格式錯誤，請輸入正數';
+        return;
+      }
+      const category = String(document.getElementById('editCategory').value || '').trim() || '未分類';
+      const note = String(document.getElementById('editNote').value || '').trim();
+      const type = document.getElementById('editType').value === 'income' ? 'income' : 'expense';
+      const existingTx = findTransactionById(editingTransactionId);
+      const timestamp = String(existingTx?.timestamp || new Date().toISOString());
       try {
-        const res = await fetch(`/api/channel/${channelId}/transactions/${id}`, {
+        const res = await fetch(`/api/channel/${channelId}/transactions/${editingTransactionId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            amount: Number(amount),
+            amount: amountValue,
             category,
             note,
-            type: type === 'income' ? 'income' : 'expense',
-            timestamp: new Date().toISOString(),
+            type,
+            timestamp,
           }),
         });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || '更新失敗');
+        closeEditModal();
         await loadData();
       } catch (error) {
-        alert(`更新失敗：${error.message}`);
+        document.getElementById('editTxStatus').textContent = `更新失敗：${error.message}`;
       }
     }
 
@@ -1043,7 +1338,7 @@
         html += `<li class="transaction group-header"><div class="t-info"><strong style="${groupStyle};padding:4px 8px;border-radius:999px;border:1px solid #2a2a4a;display:inline-block;">${escapeHtml(groupKey)}</strong></div><div class="t-time">${list.length} 筆</div></li>`;
         list.forEach((t) => {
           const amountPrefix = t.type === 'income' ? '+' : '-';
-          const date = new Date(t.timestamp).toLocaleString('zh-TW');
+          const date = new Date(t.timestamp).toLocaleDateString('zh-TW');
           const categoryStyle = getCategoryBadgeStyle(t.category, t.type);
           html += `
             <li class="transaction">
@@ -1054,8 +1349,13 @@
               </div>
               <div class="t-amount ${escapeHtml(t.type)}">${amountPrefix}NT$ ${Number(t.amount).toLocaleString()}</div>
               <div class="t-actions">
-                <button class="btn" onclick="editTransaction(${t.id})">編輯</button>
-                <button class="btn btn-danger" onclick="deleteTransaction(${t.id})">刪除</button>
+                <details class="tx-menu">
+                  <summary class="btn btn-icon" title="更多操作">⋯</summary>
+                  <div class="tx-menu-panel">
+                    <button onclick="openEditTransaction(${t.id})">編輯</button>
+                    <button class="danger" onclick="deleteTransaction(${t.id})">刪除</button>
+                  </div>
+                </details>
               </div>
             </li>
           `;
@@ -1064,9 +1364,10 @@
       return html;
     }
 
-    function renderSettlementHistory(settlements) {
+    function renderSettlementHistory(settlements, monthParts) {
       if (!Array.isArray(settlements) || !settlements.length) {
-        return '<div class="status-text">尚無月結記錄（每月 1 號 00:00 會自動產生上月月結）。</div>';
+        const label = monthParts ? `${Number(monthParts.year)}年${Number(monthParts.month)}月` : '當前月份';
+        return `<div class="status-text">${label} 尚無月結記錄（每月 1 號 00:00 會自動產生上月月結）。</div>`;
       }
 
       const items = settlements.map((row) => {
@@ -1172,7 +1473,10 @@
     }
 
     loadData();
-    window.editTransaction = editTransaction;
+    window.openEditTransaction = openEditTransaction;
+    window.closeEditModal = closeEditModal;
+    window.onModalBackdropClick = onModalBackdropClick;
+    window.submitEditTransaction = submitEditTransaction;
     window.deleteTransaction = deleteTransaction;
     window.saveSettings = saveSettings;
     window.toggleSettingsPanel = toggleSettingsPanel;
