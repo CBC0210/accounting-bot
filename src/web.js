@@ -432,6 +432,41 @@ app.get('/api/channel/:channelId/analytics/month', withReadonlyDb((req, res, db)
   });
 }));
 
+// API: 月結歷史（由每月排程寫入）
+app.get('/api/channel/:channelId/settlements', withReadonlyDb((req, res, db) => {
+  const { channelId } = req.params;
+  const limitRaw = Number(req.query.limit || 12);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(36, Math.floor(limitRaw))) : 12;
+
+  const rows = db.prepare(`
+    SELECT
+      id, channel_id, year, month, start_iso, end_iso,
+      income_total, expense_total, net_total, transaction_count,
+      summary_text, generated_at, created_at
+    FROM monthly_settlements
+    WHERE channel_id = ?
+    ORDER BY year DESC, month DESC
+    LIMIT ?
+  `).all(channelId, limit);
+
+  res.json({
+    channelId,
+    settlements: rows.map((row) => ({
+      id: Number(row.id),
+      year: Number(row.year),
+      month: Number(row.month),
+      startIso: row.start_iso,
+      endIso: row.end_iso,
+      income: Number(row.income_total || 0),
+      expense: Number(row.expense_total || 0),
+      net: Number(row.net_total || 0),
+      transactionCount: Number(row.transaction_count || 0),
+      summary: row.summary_text || '',
+      generatedAt: row.generated_at || row.created_at || null,
+    })),
+  });
+}));
+
 // API: 刪除單筆交易
 app.delete('/api/channel/:channelId/transactions/:id', withWritableDb((req, res, db) => {
   const { channelId, id } = req.params;

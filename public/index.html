@@ -139,28 +139,15 @@
     </header>
     
     <section class="card">
-      <h2>🤖 斜線指令</h2>
+      <h2>🤖 斜線指令（現行）</h2>
       <ul class="cmd-list">
-        <li>
-          <span class="cmd-name">/記帳 [金額] [分類] [備註]</span>
-          <p class="cmd-desc">手動記錄一筆支出</p>
-        </li>
-        <li>
-          <span class="cmd-name">/收入 [金額] [來源]</span>
-          <p class="cmd-desc">記錄收入</p>
-        </li>
-        <li>
-          <span class="cmd-name">/查詢</span>
-          <p class="cmd-desc">查詢目前餘額</p>
-        </li>
-        <li>
-          <span class="cmd-name">/設定</span>
-          <p class="cmd-desc">設定每月預算</p>
-        </li>
-        <li>
-          <span class="cmd-name">/統計</span>
-          <p class="cmd-desc">查看本週/本月消費分析</p>
-        </li>
+        <li><span class="cmd-name">/初始化</span><p class="cmd-desc">初始化目前頻道記賬流程</p></li>
+        <li><span class="cmd-name">/初始化-共同記賬</span><p class="cmd-desc">初始化伺服器唯一共同賬本</p></li>
+        <li><span class="cmd-name">/記帳 [金額] [分類] [備註]</span><p class="cmd-desc">快速新增支出</p></li>
+        <li><span class="cmd-name">/收入 [金額] [來源]</span><p class="cmd-desc">快速新增收入</p></li>
+        <li><span class="cmd-name">/查詢 [範圍]</span><p class="cmd-desc">查詢今天/昨天/本週/本月摘要</p></li>
+        <li><span class="cmd-name">/預算 [金額]</span><p class="cmd-desc">設定或查看每月預算</p></li>
+        <li><span class="cmd-name">/儀表板</span><p class="cmd-desc">取得本頻道 Dashboard 連結</p></li>
       </ul>
     </section>
     
@@ -211,9 +198,9 @@
     <section class="card">
       <h2>🌐 網站 Dashboard</h2>
       <p>訪問 <code>https://accounting.bc-verse.com/[頻道ID]</code> 查看該頻道的記帳記錄</p>
-      <p style="margin-top: 10px; color: var(--muted);">（頻道 ID 功能開發中）</p>
+      <p style="margin-top: 10px; color: var(--muted);">可編輯交易、調整設定、查看月分析與分類圖表。</p>
     </section>
-    
+
     <section class="card">
       <h2>⏰ 自動任務</h2>
       <ul class="cmd-list">

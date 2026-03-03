@@ -7,6 +7,8 @@ const { sendChannelInfoMessage } = require('./handlers/channel');
 const { startRecurringScheduler } = require('./services/recurring');
 const { startDailyReminderScheduler } = require('./services/reminder');
 const { startChannelBalanceSyncScheduler } = require('./services/channel-balance-sync');
+const { startMonthlySettlementScheduler } = require('./services/monthly-settlement');
+const { startDataChangeNotifierScheduler } = require('./services/data-change-notifier');
 
 const client = new Client({
   intents: [
@@ -58,10 +60,12 @@ async function startBot() {
   try {
     await initDatabase();
     startRecurringScheduler();
+    startMonthlySettlementScheduler();
     console.log('資料庫就緒');
     await client.login(process.env.DISCORD_TOKEN);
     startDailyReminderScheduler(client);
     startChannelBalanceSyncScheduler(client);
+    startDataChangeNotifierScheduler(client);
     console.log('Discord 登入成功');
   } catch (error) {
     console.error('啟動失敗:', error);

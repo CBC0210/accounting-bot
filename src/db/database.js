@@ -6,6 +6,7 @@ let db;
 let dbPath;
 let SQLInstance;
 let dbMtimeMs = 0;
+let lastLocalWriteMs = 0;
 
 function hasColumn(tableName, columnName) {
   const stmt = db.prepare(`PRAGMA table_info(${tableName})`);
@@ -162,6 +163,124 @@ async function initDatabase() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS monthly_settlements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      start_iso TEXT NOT NULL,
+      end_iso TEXT NOT NULL,
+      income_total REAL DEFAULT 0,
+      expense_total REAL DEFAULT 0,
+      net_total REAL DEFAULT 0,
+      transaction_count INTEGER DEFAULT 0,
+      summary_text TEXT,
+      generated_at TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(channel_id, year, month)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS data_change_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      action TEXT NOT NULL,
+      summary TEXT,
+      created_ms INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      processed INTEGER DEFAULT 0
+    )
+  `);
+
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS trg_tx_insert_event
+    AFTER INSERT ON transactions
+    BEGIN
+      INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
+      VALUES (
+        NEW.channel_id,
+        'transactions',
+        'insert',
+        'id=' || NEW.id,
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+      );
+    END;
+  `);
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS trg_tx_update_event
+    AFTER UPDATE ON transactions
+    BEGIN
+      INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
+      VALUES (
+        NEW.channel_id,
+        'transactions',
+        'update',
+        'id=' || NEW.id,
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+      );
+    END;
+  `);
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS trg_tx_delete_event
+    AFTER DELETE ON transactions
+    BEGIN
+      INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
+      VALUES (
+        OLD.channel_id,
+        'transactions',
+        'delete',
+        'id=' || OLD.id,
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+      );
+    END;
+  `);
+
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS trg_settings_insert_event
+    AFTER INSERT ON channel_settings
+    BEGIN
+      INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
+      VALUES (
+        NEW.channel_id,
+        'channel_settings',
+        'insert',
+        'channel=' || NEW.channel_id,
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+      );
+    END;
+  `);
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS trg_settings_update_event
+    AFTER UPDATE ON channel_settings
+    BEGIN
+      INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
+      VALUES (
+        NEW.channel_id,
+        'channel_settings',
+        'update',
+        'channel=' || NEW.channel_id,
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+      );
+    END;
+  `);
+  db.run(`
+    CREATE TRIGGER IF NOT EXISTS trg_settings_delete_event
+    AFTER DELETE ON channel_settings
+    BEGIN
+      INSERT INTO data_change_events (channel_id, entity, action, summary, created_ms)
+      VALUES (
+        OLD.channel_id,
+        'channel_settings',
+        'delete',
+        'channel=' || OLD.channel_id,
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+      );
+    END;
+  `);
+
   migrateSchema();
   
   // 儲存資料庫
@@ -215,6 +334,7 @@ function getDatabase() {
 // 確保每次改動後儲存
 function run(sql, params = []) {
   ensureFreshDatabase();
+  lastLocalWriteMs = Date.now();
   db.run(sql, params);
   saveDatabase();
 }
@@ -244,4 +364,8 @@ function all(sql, params = []) {
   return results;
 }
 
-module.exports = { initDatabase, getDatabase, saveDatabase, run, get, all };
+function getLastLocalWriteMs() {
+  return lastLocalWriteMs;
+}
+
+module.exports = { initDatabase, getDatabase, saveDatabase, run, get, all, getLastLocalWriteMs };

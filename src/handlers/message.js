@@ -68,9 +68,29 @@ async function handleMessageCore(message) {
     const setupState = channelSettings?.setup_state || null;
     const setupUserId = channelSettings?.setup_user_id || null;
     const isSetupMode = Boolean(setupState);
+    const isSharedLedger = String(channelSettings?.type || 'personal') === 'shared';
+
+    // 共同賬本不需要性別/稱呼：若還停在舊流程狀態，直接完成初始化
+    if (isSetupMode && isSharedLedger && ['await_gender', 'await_title', 'await_split_books'].includes(setupState)) {
+      completeChannelSetup(message.channel.id);
+      void updateChannelBalanceName(message.channel);
+      const current = getChannelSettings(message.channel.id);
+      await message.reply(
+        `✅ 已自動完成共同賬本初始化（共同賬本不需性別與稱呼）。\n` +
+        `- 每月預算：NT$ ${(current?.budget || 0).toLocaleString()}\n` +
+        `- 每日提醒：${current?.reminder_time || '未設定'}`
+      );
+      return;
+    }
+
     const sharedTransfer = !isSetupMode ? parseSharedLedgerTransferIntent(content) : null;
     if (sharedTransfer) {
       const handled = await handleSharedLedgerTransfer(message, sharedTransfer.amount);
+      if (handled) return;
+    }
+    const personalTransfer = !isSetupMode ? parsePersonalLedgerTransferIntent(content) : null;
+    if (personalTransfer) {
+      const handled = await handlePersonalLedgerTransfer(message, personalTransfer);
       if (handled) return;
     }
 
@@ -394,6 +414,9 @@ async function handleQueryAnalysis(message, content, decision) {
 }
 
 async function handleSetupConversation(message, setupState, llmDecision, content) {
+  const channelSettings = getChannelSettings(message.channel.id);
+  const isSharedLedger = String(channelSettings?.type || 'personal') === 'shared';
+
   switch (setupState) {
     case 'await_budget': {
       const budget = extractBudgetFromDecision(llmDecision);
@@ -415,6 +438,17 @@ async function handleSetupConversation(message, setupState, llmDecision, content
       }
 
       setChannelReminderTime(message.channel.id, reminderTime);
+      if (isSharedLedger) {
+        completeChannelSetup(message.channel.id);
+        void updateChannelBalanceName(message.channel);
+        const current = getChannelSettings(message.channel.id);
+        await message.reply(
+          `🎉 共同賬本初始化完成！\n` +
+          `- 每月預算：NT$ ${(current?.budget || 0).toLocaleString()}\n` +
+          `- 每日提醒：${current?.reminder_time || '未設定'}`
+        );
+        return true;
+      }
       setChannelSetupState(message.channel.id, 'await_gender', message.author.id);
       await message.reply(`✅ 已設定每日提醒時間：${reminderTime}\n第 3 題：你的性別是什麼？可回覆「男 / 女 / 其他」。`);
       return true;
@@ -1005,6 +1039,28 @@ function parseSharedLedgerTransferIntent(content) {
   return { amount: Math.round(amount) };
 }
 
+function parsePersonalLedgerTransferIntent(content) {
+  const text = String(content || '').trim();
+  if (!text) return null;
+  if (/(共同[賬帐]本|共同[賬帐]號)/.test(text)) return null;
+  if (!/(轉給|轉帳給|匯給|給)/.test(text)) return null;
+  const amountMatch = text.match(/(\d+(?:\.\d+)?)/);
+  if (!amountMatch) return null;
+  const amount = Number(amountMatch[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  const targetMatch = text.match(/(?:轉給|轉帳給|匯給|給)\s*([^\d\s，,。!！?？]+)/);
+  if (!targetMatch) return null;
+  const targetRaw = String(targetMatch[1] || '').trim();
+  const targetHint = normalizeTransferTargetName(targetRaw);
+  if (!targetHint) return null;
+
+  return {
+    amount: Math.round(amount),
+    targetHint,
+  };
+}
+
 async function handleSharedLedgerTransfer(message, amount) {
   const guildId = message.guild?.id;
   if (!guildId) return false;
@@ -1091,6 +1147,142 @@ async function handleSharedLedgerTransfer(message, amount) {
     console.log('共同賬本發送轉入通知失敗:', error.message);
   }
   return true;
+}
+
+async function handlePersonalLedgerTransfer(message, transfer) {
+  const { amount, targetHint } = transfer || {};
+  if (!amount || !targetHint) return false;
+
+  const guild = message.guild;
+  if (!guild) return false;
+
+  const sourceSettings = getChannelSettings(message.channel.id);
+  const sourceLedgerName = buildLedgerDisplayName(sourceSettings, message.channel.name || '來源賬本');
+  const actorName = String(sourceSettings?.user_title || message.member?.displayName || message.author?.username || '使用者');
+
+  const matched = await findTargetPersonalLedgerChannels(guild, message.channel.id, targetHint);
+  if (!matched.length) {
+    await message.reply(`⚠️ 找不到「${targetHint}」對應的個人賬本，請確認對方已完成初始化且稱呼正確。`);
+    return true;
+  }
+  if (matched.length > 1) {
+    const options = matched.slice(0, 5).map((item) => item.ledgerName).join('、');
+    await message.reply(`⚠️ 找到多個相符賬本（${options}），請改用更精準稱呼。`);
+    return true;
+  }
+
+  const target = matched[0];
+  if (target.channelId === message.channel.id) {
+    await message.reply('ℹ️ 你指定的是目前這個賬本，不需要轉帳。');
+    return true;
+  }
+
+  const { run } = require('../db/database');
+  const nowIso = new Date().toISOString();
+  run(`
+    INSERT INTO transactions (channel_id, user_id, amount, category, note, type, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [
+    message.channel.id,
+    message.author.id,
+    amount,
+    '轉帳',
+    `轉給 ${target.ledgerName}`,
+    'expense',
+    nowIso,
+  ]);
+  run(`
+    INSERT INTO transactions (channel_id, user_id, amount, category, note, type, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [
+    target.channelId,
+    message.author.id,
+    amount,
+    '轉入',
+    `來自 ${sourceLedgerName}（${actorName}）`,
+    'income',
+    nowIso,
+  ]);
+
+  const sourceBalance = getChannelNetBalance(message.channel.id);
+  const targetBalance = getChannelNetBalance(target.channelId);
+  void updateChannelBalanceName(message.channel);
+  if (target.channel) {
+    void updateChannelBalanceName(target.channel);
+  }
+
+  await sendEmbed(message, {
+    title: '💸 轉帳成功',
+    fields: [
+      { name: '轉入目標', value: target.ledgerName, inline: false },
+      { name: '金額', value: `NT$ ${amount.toLocaleString()}`, inline: true },
+      { name: '來源賬本餘額', value: `NT$ ${sourceBalance.toLocaleString()}`, inline: true },
+      { name: '目標賬本餘額', value: `NT$ ${targetBalance.toLocaleString()}`, inline: true },
+    ],
+  });
+
+  if (target.channel && typeof target.channel.send === 'function') {
+    try {
+      const embed = new EmbedBuilder()
+        .setColor(0x38bdf8)
+        .setTitle('💸 收到轉入')
+        .addFields(
+          { name: '來源', value: `${sourceLedgerName}（${actorName}）`, inline: false },
+          { name: '金額', value: `+NT$ ${amount.toLocaleString()}`, inline: true },
+          { name: '目前餘額', value: `NT$ ${targetBalance.toLocaleString()}`, inline: true }
+        )
+        .setTimestamp();
+      await target.channel.send({ embeds: [embed] });
+    } catch (error) {
+      console.log('目標個人賬本發送轉入通知失敗:', error.message);
+    }
+  }
+
+  return true;
+}
+
+async function findTargetPersonalLedgerChannels(guild, sourceChannelId, targetHint) {
+  const { all } = require('../db/database');
+  const rows = all(`
+    SELECT channel_id, type, user_title, setup_completed_at
+    FROM channel_settings
+    WHERE setup_completed_at IS NOT NULL
+      AND type = 'personal'
+      AND user_title IS NOT NULL
+      AND TRIM(user_title) <> ''
+      AND channel_id <> ?
+  `, [sourceChannelId]);
+
+  const hintNorm = normalizeTransferTargetName(targetHint);
+  const candidates = [];
+  for (const row of rows) {
+    const title = String(row.user_title || '').trim();
+    const titleNorm = normalizeTransferTargetName(title);
+    if (!titleNorm) continue;
+    if (!(titleNorm === hintNorm || titleNorm.includes(hintNorm) || hintNorm.includes(titleNorm))) continue;
+    try {
+      const channel = await guild.channels.fetch(row.channel_id);
+      if (!channel) continue;
+      candidates.push({
+        channelId: row.channel_id,
+        ledgerName: `${title}的賬本`,
+        title,
+        channel,
+      });
+    } catch (error) {
+      // 略過無法讀取的頻道
+    }
+  }
+  return candidates;
+}
+
+function normalizeTransferTargetName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^(給|轉給|轉帳給|匯給)/, '')
+    .replace(/(的)?(個人)?[賬帐](本|戶|號)$/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
 }
 
 function startTypingIndicator(channel) {
