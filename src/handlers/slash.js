@@ -60,7 +60,7 @@ async function handleSlashCommand(interaction) {
       await handleInit(interaction);
       break;
 
-    case '初始化-共同記賬':
+    case '初始化-共同記帳':
     case 'init-shared-ledger':
       await handleInitSharedLedger(interaction);
       break;
@@ -242,23 +242,89 @@ async function handleDashboard(interaction) {
 }
 
 async function handleHelp(interaction) {
-  const embed = new EmbedBuilder()
+  const settings = getChannelSettings(interaction.channelId);
+  const mealPeriods = parseConfiguredMealPeriods(settings?.meal_periods_text);
+  const overviewEmbed = new EmbedBuilder()
     .setColor(0x22c55e)
-    .setTitle('🧭 指令與用法')
-    .setDescription('建議以「直接對話」為主，Slash 作為快速入口。')
-    .addFields(
-      { name: '/初始化', value: '啟動或重置本頻道初始化流程', inline: false },
-      { name: '/記帳', value: '快速新增一筆支出（也可直接打字記帳）', inline: false },
-      { name: '/收入', value: '快速新增一筆收入', inline: false },
-      { name: '/查詢', value: '查詢今天/昨天/本週/本月等區間收支摘要', inline: false },
-      { name: '/預算', value: '設定預算，或不填金額直接查看目前預算', inline: false },
-      { name: '/儀表板', value: '取得本頻道 Dashboard 連結', inline: false },
-      { name: '/初始化-共同記賬', value: '設定此伺服器唯一共同賬本頻道', inline: false }
+    .setTitle('🧭 快速上手（總覽）')
+    .setDescription(
+      '建議以「直接對話」為主，Slash 作為入口。\n' +
+      '流程：先 `/初始化`（或 `/初始化-共同記帳`）→ 直接聊天記帳與查詢。'
     )
-    .setFooter({ text: '進階查詢示例：昨天和今天的消費差多少、本月支出分類占比' })
+    .addFields(
+      { name: '/初始化', value: '啟動或重置本頻道初始化流程。會引導預算、提醒時間、稱呼等設定。', inline: false },
+      { name: '/記帳', value: '快速新增支出；也可直接輸入自然語句（例如：`午餐 120`）。', inline: false },
+      { name: '/收入', value: '快速新增收入（例如：`薪資 32000`）。', inline: false },
+      { name: '/查詢', value: '查詢今天/昨天/本週/本月摘要，或用自然語句自訂區間。', inline: false },
+      { name: '/預算', value: '設定預算，或不填金額直接查看目前預算。', inline: false },
+      { name: '/儀表板', value: '取得本頻道 Dashboard 連結。', inline: false },
+      { name: '/初始化-共同記帳', value: '設定此伺服器唯一共同帳本頻道。', inline: false },
+      { name: '🍽️ 目前餐期設定', value: formatMealPeriodsForDisplay(mealPeriods), inline: false }
+    )
+    .setFooter({ text: '下一頁有查詢明細 / 記帳 / 分析 / 共同帳本詳細示例' })
     .setTimestamp();
 
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  const detailsEmbed = new EmbedBuilder()
+    .setColor(0x38bdf8)
+    .setTitle('🧾 查詢與明細（詳細）')
+    .setDescription(
+      '一般查詢會回覆：\n' +
+      '1) 摘要 Embed\n' +
+      '2) 條目 Embed（可按「上一頁 / 下一頁」）'
+    )
+    .addFields(
+      {
+        name: '常用查詢',
+        value:
+          '• `今日消費` / `昨日開銷`\n' +
+          '• `3/1 的花費`\n' +
+          '• `昨天和今天的消費差多少`\n' +
+          '• `本月支出分類占比`',
+        inline: false,
+      },
+      {
+        name: '查詢明細格式',
+        value:
+          '每條包含：ID、日期時間、分類、金額、備註。\n' +
+          '若資料過多，使用按鈕分頁查看。',
+        inline: false,
+      }
+    )
+    .setTimestamp();
+
+  const advancedEmbed = new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle('📊 記帳、分析、共同帳本（詳細）')
+    .addFields(
+      {
+        name: '自然語言記帳',
+        value:
+          '• `早餐 蛋餅 55`\n' +
+          '• `3/2 15:49 ihotel 620`\n' +
+          '• `午餐 滷味 55 飲料 50`（一次多筆）',
+        inline: false,
+      },
+      {
+        name: '分析模式（建議帶關鍵字）',
+        value:
+          '• `分析昨日消費`\n' +
+          '• `比較上週和本週支出`\n' +
+          '• `本月分類占比分析`',
+        inline: false,
+      },
+      {
+        name: '共同帳本使用',
+        value:
+          '1. 在共同頻道執行 `/初始化-共同記帳`\n' +
+          '2. 個人頻道可說：`給共同帳本添加 2000`\n' +
+          '3. 共同帳本可說：`共同帳本轉給 小明 800`\n' +
+          '4. 轉帳會雙邊記錄並雙邊通知',
+        inline: false,
+      }
+    )
+    .setTimestamp();
+
+  await interaction.reply({ embeds: [overviewEmbed, detailsEmbed, advancedEmbed], ephemeral: true });
 }
 
 async function handleInit(interaction) {
@@ -323,7 +389,7 @@ async function handleInitSharedLedger(interaction) {
   const guildId = interaction.guildId;
   if (!guildId) {
     await interaction.reply({
-      content: '⚠️ 共同賬本僅支援伺服器文字頻道。',
+      content: '⚠️ 共同帳本僅支援伺服器文字頻道。',
       ephemeral: true,
     });
     return;
@@ -350,24 +416,24 @@ async function handleInitSharedLedger(interaction) {
     const previousCount = isSwitchingChannel ? getChannelTransactionCount(existingSharedChannelId) : 0;
     const warningEmbed = new EmbedBuilder()
       .setColor(0xff8c42)
-      .setTitle('⚠️ 確認初始化共同賬本')
+      .setTitle('⚠️ 確認初始化共同帳本')
       .setDescription(
         isSwitchingChannel
-          ? `此伺服器目前共同賬本為 <#${existingSharedChannelId}>，若確認切換會清空舊共同賬本資料。`
-          : '此頻道已有資料，若確認會清空目前頻道資料後作為共同賬本。'
+          ? `此伺服器目前共同帳本為 <#${existingSharedChannelId}>，若確認切換會清空舊共同帳本資料。`
+          : '此頻道已有資料，若確認會清空目前頻道資料後作為共同帳本。'
       )
       .addFields(
-        { name: '🏦 新共同賬本頻道', value: `<#${channelId}>`, inline: false },
+        { name: '🏦 新共同帳本頻道', value: `<#${channelId}>`, inline: false },
         { name: '🧾 目前頻道記帳筆數', value: `${transactionCount}`, inline: true },
         { name: '📌 目前頻道釘選數', value: `${pinnedCount}`, inline: true },
         { name: '⚙️ 目前頻道設定', value: hasConfiguredSettings ? '已有設定' : '無', inline: true },
-        { name: '🗂️ 舊共同賬本記帳筆數', value: isSwitchingChannel ? `${previousCount}` : '無', inline: true }
+        { name: '🗂️ 舊共同帳本記帳筆數', value: isSwitchingChannel ? `${previousCount}` : '無', inline: true }
       );
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`init_shared_confirm:${channelId}:${interaction.user.id}:${guildId}:${existingSharedChannelId || 'none'}`)
-        .setLabel('確認切換共同賬本')
+        .setLabel('確認切換共同帳本')
         .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
         .setCustomId(`init_shared_cancel:${channelId}:${interaction.user.id}:${guildId}:${existingSharedChannelId || 'none'}`)
@@ -385,7 +451,7 @@ async function handleInitSharedLedger(interaction) {
 
   upsertGuildSharedLedger(guildId, channelId);
   await interaction.reply({
-    content: '✅ 已設定此頻道為共同賬本，請依序完成初始化。',
+    content: '✅ 已設定此頻道為共同帳本，請依序完成初始化。',
     ephemeral: true,
   });
   await startChannelInitialization(channel, interaction.user.id, dashboardUrl, 'shared');
@@ -428,7 +494,7 @@ async function handleComponentInteraction(interaction) {
 
   if (action === 'init_shared_cancel') {
     await interaction.update({
-      content: '已取消共同賬本初始化，原本資料保留。',
+      content: '已取消共同帳本初始化，原本資料保留。',
       embeds: [],
       components: [],
     });
@@ -438,7 +504,7 @@ async function handleComponentInteraction(interaction) {
   if (action === 'init_shared_confirm') {
     const [, , , guildId, previousSharedChannelId] = String(interaction.customId || '').split(':');
     await interaction.update({
-      content: '⏳ 正在切換共同賬本並清理資料...',
+      content: '⏳ 正在切換共同帳本並清理資料...',
       embeds: [],
       components: [],
     });
@@ -458,9 +524,9 @@ async function handleComponentInteraction(interaction) {
 
     await interaction.followUp({
       content:
-        `✅ 共同賬本已設定為 <#${channelId}>。\n` +
+        `✅ 共同帳本已設定為 <#${channelId}>。\n` +
         `- 目前頻道已清除 ${currentResult.clearedTransactions} 筆記帳、取消 ${currentResult.unpinned} 則釘選。\n` +
-        `${previousResult.channelId ? `- 舊共同賬本 <#${previousResult.channelId}> 已清除 ${previousResult.clearedTransactions} 筆記帳、取消 ${previousResult.unpinned} 則釘選。\n` : ''}` +
+        `${previousResult.channelId ? `- 舊共同帳本 <#${previousResult.channelId}> 已清除 ${previousResult.clearedTransactions} 筆記帳、取消 ${previousResult.unpinned} 則釘選。\n` : ''}` +
         '接下來請完成初始化設定。',
       ephemeral: true,
     });
@@ -498,9 +564,9 @@ async function startChannelInitialization(channel, setupUserId, dashboardUrl, ty
   });
   setChannelSetupState(channelId, 'await_budget', setupUserId);
 
-  const titleText = type === 'shared' ? '🦑 共同記賬機器人' : '🦑 記帳機器人';
+  const titleText = type === 'shared' ? '🦑 共同記帳機器人' : '🦑 記帳機器人';
   const welcomeText = type === 'shared'
-    ? '歡迎使用共同記賬機器人！\n先完成初始化，之後伺服器成員可共用這本帳。'
+    ? '歡迎使用共同記帳機器人！\n先完成初始化，之後伺服器成員可共用這本帳。'
     : '歡迎使用記帳機器人！\n先完成初始化，之後就能直接對話記帳。';
 
   const embed = new EmbedBuilder()
@@ -562,12 +628,12 @@ async function resetAnotherChannelData(guild, channelId) {
           await pinnedMessage.unpin();
           unpinned += 1;
         } catch (error) {
-          console.log('舊共同賬本取消釘選失敗:', error.message);
+          console.log('舊共同帳本取消釘選失敗:', error.message);
         }
       }
     }
   } catch (error) {
-    console.log('讀取舊共同賬本頻道失敗:', error.message);
+    console.log('讀取舊共同帳本頻道失敗:', error.message);
   }
 
   return {
@@ -585,6 +651,47 @@ async function getPinnedMessagesSafe(channel) {
     console.log('讀取釘選訊息失敗:', error.message);
     return [];
   }
+}
+
+function defaultMealPeriods() {
+  return {
+    breakfast: { start: '05:00', end: '10:59' },
+    lunch: { start: '11:00', end: '15:59' },
+    dinner: { start: '16:00', end: '21:59' },
+    late_night: { start: '22:00', end: '04:59' },
+  };
+}
+
+function parseConfiguredMealPeriods(text) {
+  const fallback = defaultMealPeriods();
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(String(text || '{}'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+    const out = {};
+    Object.keys(fallback).forEach((key) => {
+      const src = parsed[key] || {};
+      const start = String(src.start || '').trim();
+      const end = String(src.end || '').trim();
+      out[key] = {
+        start: /^([01]\d|2[0-3]):([0-5]\d)$/.test(start) ? start : fallback[key].start,
+        end: /^([01]\d|2[0-3]):([0-5]\d)$/.test(end) ? end : fallback[key].end,
+      };
+    });
+    return out;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function formatMealPeriodsForDisplay(periods) {
+  const p = periods || defaultMealPeriods();
+  return [
+    `早餐 ${p.breakfast.start}-${p.breakfast.end}`,
+    `午餐 ${p.lunch.start}-${p.lunch.end}`,
+    `晚餐 ${p.dinner.start}-${p.dinner.end}`,
+    `宵夜 ${p.late_night.start}-${p.late_night.end}`,
+  ].join('\n');
 }
 
 function parseRangeInput(range, startDateText, endDateText) {

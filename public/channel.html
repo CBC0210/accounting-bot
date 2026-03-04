@@ -166,9 +166,28 @@
       padding: 6px 10px;
       cursor: pointer;
       font-size: 0.85rem;
+      transition: all 0.2s ease;
     }
     .btn:hover { border-color: var(--accent); }
     .btn-danger:hover { border-color: var(--red); color: var(--red); }
+    .btn:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+    .btn.loading {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(0, 217, 255, 0.25) inset;
+    }
+    .btn-save-primary {
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+      border-color: #22c55e;
+      color: #f0fdf4;
+      font-weight: 700;
+    }
+    .btn-save-primary:hover {
+      border-color: #4ade80;
+      box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35) inset;
+    }
 
     .form-grid {
       display: grid;
@@ -196,9 +215,29 @@
       color: var(--muted);
       font-size: 0.85rem;
       margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #2a2a4a;
+      background: #111326;
+      font-weight: 600;
+      display: none;
     }
-    .status-text.error { color: var(--red); }
-    .status-text.success { color: var(--green); }
+    .status-text.show { display: block; }
+    .status-text.error {
+      color: #fecaca;
+      border-color: rgba(248, 113, 113, 0.55);
+      background: rgba(127, 29, 29, 0.3);
+    }
+    .status-text.success {
+      color: #bbf7d0;
+      border-color: rgba(74, 222, 128, 0.55);
+      background: rgba(20, 83, 45, 0.3);
+    }
+    .status-text.pending {
+      color: #bae6fd;
+      border-color: rgba(0, 217, 255, 0.55);
+      background: rgba(8, 47, 73, 0.35);
+    }
 
     .toggle-row {
       display: flex;
@@ -206,9 +245,48 @@
       align-items: center;
       margin-bottom: 10px;
     }
+    .settings-top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
 
     .settings-panel { display: none; }
     .settings-panel.open { display: block; }
+
+    .toast {
+      position: fixed;
+      right: 20px;
+      top: 20px;
+      z-index: 9999;
+      min-width: 220px;
+      max-width: 320px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #2a2a4a;
+      background: #111326;
+      color: var(--text);
+      font-weight: 700;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      transform: translateY(-8px);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .toast.success {
+      border-color: rgba(74, 222, 128, 0.65);
+      background: rgba(20, 83, 45, 0.95);
+      color: #dcfce7;
+    }
+    .toast.error {
+      border-color: rgba(248, 113, 113, 0.65);
+      background: rgba(127, 29, 29, 0.95);
+      color: #fee2e2;
+    }
 
     .chips-wrap {
       display: flex;
@@ -386,6 +464,50 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    .category-budget-list {
+      margin-top: 10px;
+      display: grid;
+      gap: 8px;
+    }
+    .category-budget-item {
+      display: grid;
+      grid-template-columns: 120px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .category-budget-item .name {
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mini-track {
+      height: 6px;
+      border-radius: 999px;
+      background: #1f2937;
+      overflow: hidden;
+    }
+    .mini-fill {
+      height: 100%;
+      border-radius: 999px;
+    }
+    .category-budget-editor {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .category-budget-row {
+      display: grid;
+      grid-template-columns: 1fr 160px;
+      gap: 8px;
+      align-items: center;
+    }
+    .category-budget-row .name {
+      font-size: 0.88rem;
+      color: var(--text);
+    }
 
     .segmented {
       display: inline-flex;
@@ -526,6 +648,13 @@
       .actions-row .btn {
         width: 100%;
       }
+      .category-budget-item {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+      .category-budget-row {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (max-width: 480px) {
@@ -535,6 +664,13 @@
       .form-field input, .form-field textarea, .form-field select {
         font-size: 0.9rem;
       }
+    }
+    .page-credit {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-top: 16px;
+      padding-bottom: 10px;
     }
   </style>
 </head>
@@ -548,7 +684,9 @@
     <div id="app">
       <div class="loading">載入中...</div>
     </div>
+    <div class="page-credit">Powered by CBC0210 · Accounting Bot Dashboard</div>
   </div>
+  <div id="saveToast" class="toast" aria-live="polite"></div>
   <div id="txEditModal" class="modal-backdrop" onclick="onModalBackdropClick(event)">
     <div class="modal-card">
       <div class="toggle-row" style="margin-bottom: 12px;">
@@ -562,10 +700,18 @@
         </div>
         <div class="form-field">
           <label>類型</label>
-          <select id="editType">
+          <select id="editType" onchange="onEditTypeChange()">
             <option value="expense">支出</option>
             <option value="income">收入</option>
           </select>
+        </div>
+        <div class="form-field">
+          <label>日期</label>
+          <input id="editDate" type="date" />
+        </div>
+        <div class="form-field">
+          <label>時間</label>
+          <input id="editTime" type="time" />
         </div>
         <div class="form-field">
           <label>類別</label>
@@ -592,9 +738,17 @@
       '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '日常生活', '醫療', '教育', '投資', '禮物', '其他',
       '薪資', '兼職', '被動收入', '紅包', '生活費'
     ];
+    const defaultIncomeCategoryTags = ['薪資', '兼職', '被動收入', '紅包', '生活費', '收入'];
     const defaultStyleTags = ['友善', '幽默', '精簡'];
+    const defaultMealPeriods = {
+      breakfast: { start: '05:00', end: '10:59' },
+      lunch: { start: '11:00', end: '15:59' },
+      dinner: { start: '16:00', end: '21:59' },
+      late_night: { start: '22:00', end: '04:59' },
+    };
     let settingsPanelOpen = false;
-    let categoryTags = [];
+    let expenseCategoryTags = [];
+    let incomeCategoryTags = [];
     let styleTags = [];
     let recurringRows = [];
     let chartExpense = null;
@@ -603,6 +757,8 @@
     let selectedMonth = '';
     let currentMonthTransactions = [];
     let editingTransactionId = null;
+    let categoryBudgets = {};
+    let mealPeriods = { ...defaultMealPeriods };
 
     function escapeHtml(str) {
       return String(str ?? '')
@@ -645,6 +801,120 @@
       return cleaned.length ? cleaned : [...fallback];
     }
 
+    function isIncomeCategoryTag(tag) {
+      const text = String(tag || '').trim().toLowerCase();
+      if (!text) return false;
+      return defaultIncomeCategoryTags.some((x) => String(x).toLowerCase() === text);
+    }
+
+    function splitCategoryTagsByType(tags) {
+      const source = dedupeTags(tags || []);
+      const income = [];
+      const expense = [];
+      source.forEach((tag) => {
+        if (isIncomeCategoryTag(tag)) {
+          income.push(tag);
+        } else {
+          expense.push(tag);
+        }
+      });
+      return {
+        expense: dedupeTags(expense),
+        income: dedupeTags(income),
+      };
+    }
+
+    function getAllCategoryTags() {
+      return dedupeTags([...(expenseCategoryTags || []), ...(incomeCategoryTags || [])]);
+    }
+
+    function parseCategoryBudgetsText(text) {
+      if (!text) return {};
+      try {
+        const parsed = JSON.parse(String(text || '{}'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+        const out = {};
+        Object.entries(parsed).forEach(([k, v]) => {
+          const key = String(k || '').trim();
+          const amount = Number(v);
+          if (!key || !Number.isFinite(amount) || amount <= 0) return;
+          out[key] = Math.round(amount);
+        });
+        return out;
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function serializeCategoryBudgets(mapObj) {
+      const out = {};
+      Object.entries(mapObj || {}).forEach(([k, v]) => {
+        const key = String(k || '').trim();
+        const amount = Number(v);
+        if (!key || !Number.isFinite(amount) || amount <= 0) return;
+        out[key] = Math.round(amount);
+      });
+      return JSON.stringify(out);
+    }
+
+    function parseMealPeriodsText(text) {
+      if (!text) return { ...defaultMealPeriods };
+      try {
+        const parsed = JSON.parse(String(text || '{}'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ...defaultMealPeriods };
+        const out = {};
+        Object.keys(defaultMealPeriods).forEach((key) => {
+          const src = parsed[key] || defaultMealPeriods[key];
+          const start = String(src?.start || '').trim();
+          const end = String(src?.end || '').trim();
+          out[key] = {
+            start: /^([01]\d|2[0-3]):([0-5]\d)$/.test(start) ? start : defaultMealPeriods[key].start,
+            end: /^([01]\d|2[0-3]):([0-5]\d)$/.test(end) ? end : defaultMealPeriods[key].end,
+          };
+        });
+        return out;
+      } catch (_) {
+        return { ...defaultMealPeriods };
+      }
+    }
+
+    function serializeMealPeriods(periods) {
+      const out = {};
+      Object.keys(defaultMealPeriods).forEach((key) => {
+        const start = String(periods?.[key]?.start || defaultMealPeriods[key].start).trim();
+        const end = String(periods?.[key]?.end || defaultMealPeriods[key].end).trim();
+        out[key] = { start, end };
+      });
+      return JSON.stringify(out);
+    }
+
+    function categoryBudgetColors(index) {
+      const palette = ['#22c55e', '#06b6d4', '#a78bfa', '#f59e0b', '#ef4444', '#10b981', '#3b82f6'];
+      return palette[index % palette.length];
+    }
+
+    function renderCategoryBudgetRows() {
+      const tags = dedupeTags(expenseCategoryTags || []);
+      if (!tags.length) {
+        return '<div class="status-text">請先在上方新增「支出分類」，再設定分類預算。</div>';
+      }
+      return tags.map((tag) => {
+        const value = Number(categoryBudgets?.[tag] || 0);
+        return `
+          <div class="category-budget-row">
+            <div class="name">${escapeHtml(tag)}</div>
+            <input
+              type="text"
+              inputmode="numeric"
+              placeholder="不設定可留空"
+              value="${value > 0 ? escapeHtml(String(value)) : ''}"
+              onchange="updateCategoryBudgetValue('${encodeURIComponent(tag)}', this.value)"
+            />
+          </div>
+        `;
+      }).join('');
+    }
+
     function chipsHtml(tags, removeHandlerName) {
       return dedupeTags(tags)
         .map((tag) => {
@@ -654,28 +924,74 @@
         .join('');
     }
 
-    function setStatus(message, isError = false) {
+    function renderEditCategoryOptions(currentCategory = '', txType = 'expense') {
+      const select = document.getElementById('editCategory');
+      if (!select) return;
+      const selected = String(currentCategory || '').trim() || '未分類';
+      const sourceTags = txType === 'income'
+        ? dedupeTags([...(incomeCategoryTags || []), '收入'])
+        : dedupeTags([...(expenseCategoryTags || []), '未分類']);
+      const baseTags = dedupeTags([...sourceTags, selected]);
+      select.innerHTML = baseTags
+        .map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`)
+        .join('');
+      select.value = selected;
+    }
+
+    function onEditTypeChange() {
+      const type = document.getElementById('editType')?.value === 'income' ? 'income' : 'expense';
+      const currentCategory = String(document.getElementById('editCategory')?.value || '').trim();
+      renderEditCategoryOptions(currentCategory, type);
+    }
+
+    function setStatus(message, isError = false, mode = 'info') {
       const statusEl = document.getElementById('settingsStatus');
       if (!statusEl) return;
-      statusEl.textContent = message;
+      statusEl.textContent = String(message || '').trim();
+      statusEl.classList.toggle('show', Boolean(statusEl.textContent));
       statusEl.classList.toggle('error', Boolean(isError));
-      statusEl.classList.toggle('success', !isError && Boolean(message));
+      statusEl.classList.toggle('success', !isError && mode === 'success' && Boolean(message));
+      statusEl.classList.toggle('pending', !isError && mode === 'pending' && Boolean(message));
+    }
+
+    function setSaveButtonsLoading(isLoading) {
+      const buttons = Array.from(document.querySelectorAll('.save-settings-btn'));
+      buttons.forEach((btn) => {
+        btn.disabled = Boolean(isLoading);
+        btn.classList.toggle('loading', Boolean(isLoading));
+      });
+    }
+
+    let saveToastTimer = null;
+    function showSaveToast(message, type = 'success') {
+      const toast = document.getElementById('saveToast');
+      if (!toast) return;
+      if (saveToastTimer) clearTimeout(saveToastTimer);
+      toast.textContent = String(message || '').trim();
+      toast.classList.remove('success', 'error', 'show');
+      toast.classList.add(type === 'error' ? 'error' : 'success');
+      // force reflow for restart animation
+      void toast.offsetWidth;
+      toast.classList.add('show');
+      saveToastTimer = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2000);
     }
 
     function getLedgerDisplayName(ledgerType, title, fallbackName) {
-      if (String(ledgerType || 'personal') === 'shared') return '共同賬本';
+      if (String(ledgerType || 'personal') === 'shared') return '共同帳本';
       const t = String(title || '').trim();
-      if (t) return `${t}的賬本`;
+      if (t) return `${t}的帳本`;
       const fallback = String(fallbackName || '')
         .trim()
         .replace(/_[+-]?\d+$/, '');
-      return fallback || '個人賬本';
+      return fallback || '個人帳本';
     }
 
     function normalizeTransactionNote(noteText) {
       const text = String(noteText || '').trim();
       if (!text) return '-';
-      if (/^來自頻道\s+\d+$/.test(text)) return '來自其他賬本';
+      if (/^來自頻道\s+\d+$/.test(text)) return '來自其他帳本';
       return text;
     }
 
@@ -847,8 +1163,13 @@
           return;
         }
 
-        categoryTags = parseTagsFromSettingsText(settings.categoriesText, defaultCategoryTags);
+        const allTags = parseTagsFromSettingsText(settings.categoriesText, defaultCategoryTags);
+        const splitTags = splitCategoryTagsByType(allTags);
+        expenseCategoryTags = splitTags.expense;
+        incomeCategoryTags = splitTags.income;
         styleTags = parseTagsFromSettingsText(settings.chatStyleTagsText, defaultStyleTags);
+        categoryBudgets = parseCategoryBudgetsText(settings.categoryBudgetsText);
+        mealPeriods = parseMealPeriodsText(settings.mealPeriodsText || '');
         recurringRows = parseRecurringRowsText(settings.recurringItemsText || '');
         const ledgerName = getLedgerDisplayName(
           settings.ledgerType || data.ledgerType,
@@ -870,6 +1191,28 @@
         const budgetPercentDisplay = Math.round(budgetPercent * 10) / 10;
         const budgetProgressWidth = Math.min(100, Math.max(0, budgetPercent));
         const budgetRemaining = Math.max(0, budgetValue - monthExpense);
+        const monthTotalDays = new Date(monthParts.year, monthParts.month, 0).getDate();
+        const now = new Date();
+        const currentMonthKey = now.getFullYear() * 100 + (now.getMonth() + 1);
+        const selectedMonthKey = monthParts.year * 100 + monthParts.month;
+        const remainingDays = selectedMonthKey === currentMonthKey
+          ? Math.max(1, monthTotalDays - now.getDate() + 1)
+          : selectedMonthKey > currentMonthKey
+            ? monthTotalDays
+            : 0;
+        const dailyBudgetAvailable = remainingDays > 0 ? budgetRemaining / remainingDays : 0;
+        const expenseByCategoryMap = new Map(
+          (analytics?.expenseByCategory || []).map((row) => [String(row.category || '未分類'), Number(row.total || 0)])
+        );
+        const expenseTagSet = new Set(dedupeTags(expenseCategoryTags || []).map((x) => String(x)));
+        const configuredCategoryBudgetRows = Object.entries(categoryBudgets || {})
+          .map(([name, amount]) => ({
+            name,
+            budget: Number(amount || 0),
+            spent: Number(expenseByCategoryMap.get(name) || 0),
+          }))
+          .filter((row) => row.budget > 0 && expenseTagSet.has(String(row.name)))
+          .sort((a, b) => b.budget - a.budget);
         const monthLabel = `${monthParts.year}年${monthParts.month}月`;
 
         const transactionsHtml = renderTransactionsList(monthTransactions, listMode);
@@ -930,7 +1273,24 @@
                 <span>已用 NT$ ${monthExpense.toLocaleString()}</span>
                 <span>預算 NT$ ${budgetValue.toLocaleString()}</span>
                 <span>剩餘 NT$ ${budgetRemaining.toLocaleString()}</span>
+                <span>日均可用 NT$ ${Math.round(dailyBudgetAvailable).toLocaleString()}（剩餘 ${remainingDays} 天）</span>
               </div>
+              ${configuredCategoryBudgetRows.length ? `
+                <div class="category-budget-list">
+                  ${configuredCategoryBudgetRows.map((row, idx) => {
+                    const percent = row.budget > 0 ? (row.spent / row.budget) * 100 : 0;
+                    const width = Math.max(0, Math.min(100, percent));
+                    const color = categoryBudgetColors(idx);
+                    return `
+                      <div class="category-budget-item">
+                        <div class="name">${escapeHtml(row.name)}</div>
+                        <div class="mini-track"><div class="mini-fill" style="width:${width}%;background:${color};"></div></div>
+                        <div>${Math.round(percent * 10) / 10}%（${Number(row.spent || 0).toLocaleString()} / ${Number(row.budget || 0).toLocaleString()}）</div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              ` : ''}
             </div>
           </div>
 
@@ -979,7 +1339,10 @@
           <div class="card">
             <div class="toggle-row">
               <h2 style="margin: 0;">⚙️ 設定</h2>
-              <button class="btn" onclick="toggleSettingsPanel()">${settingsPanelOpen ? '收合設定' : '展開設定'}</button>
+              <div class="settings-top-actions">
+                ${settingsPanelOpen ? '<button class="btn save-settings-btn btn-save-primary" onclick="saveSettings()">儲存設定</button>' : ''}
+                <button class="btn" onclick="toggleSettingsPanel()">${settingsPanelOpen ? '收合設定' : '展開設定'}</button>
+              </div>
             </div>
             <div class="settings-panel ${settingsPanelOpen ? 'open' : ''}">
               <div class="form-grid">
@@ -1025,12 +1388,27 @@
                 </div>
 
                 <div class="form-field full">
-                  <label>分類（Tag 多選，可新增）</label>
-                  <div id="categoryChips" class="chips-wrap">${chipsHtml(categoryTags, 'removeCategoryTag')}</div>
+                  <label>支出分類（Tag，可新增）</label>
+                  <div id="expenseCategoryChips" class="chips-wrap">${chipsHtml(expenseCategoryTags, 'removeExpenseCategoryTag')}</div>
                   <div class="chip-add-row">
-                    <input id="categoryTagInput" type="text" placeholder="輸入新分類，例如：旅遊" />
-                    <button class="btn" onclick="addCategoryTag()">新增分類</button>
+                    <input id="expenseCategoryTagInput" type="text" placeholder="輸入支出分類，例如：旅遊" />
+                    <button class="btn" onclick="addExpenseCategoryTag()">新增支出分類</button>
                   </div>
+                </div>
+
+                <div class="form-field full">
+                  <label>收入分類（Tag，可新增）</label>
+                  <div id="incomeCategoryChips" class="chips-wrap">${chipsHtml(incomeCategoryTags, 'removeIncomeCategoryTag')}</div>
+                  <div class="chip-add-row">
+                    <input id="incomeCategoryTagInput" type="text" placeholder="輸入收入分類，例如：獎金" />
+                    <button class="btn" onclick="addIncomeCategoryTag()">新增收入分類</button>
+                  </div>
+                </div>
+
+                <div class="form-field full">
+                  <label>分類預算（可留空不設定）</label>
+                  <div id="categoryBudgetRows" class="category-budget-editor">${renderCategoryBudgetRows()}</div>
+                  <div class="status-text">分類預算總和不可超過每月預算。</div>
                 </div>
 
                 <div class="form-field full">
@@ -1039,6 +1417,44 @@
                   <div class="chip-add-row">
                     <input id="styleTagInput" type="text" placeholder="例如：溫柔、幹話、專業、鼓勵" />
                     <button class="btn" onclick="addStyleTag()">新增風格</button>
+                  </div>
+                </div>
+
+                <div class="form-field full">
+                  <label>餐飲時段（查詢早餐/午餐/晚餐/宵夜時使用）</label>
+                  <div class="form-grid">
+                    <div class="form-field">
+                      <label>早餐</label>
+                      <div class="actions-row">
+                        <input id="mealBreakfastStart" type="time" value="${escapeHtml(mealPeriods?.breakfast?.start || defaultMealPeriods.breakfast.start)}" />
+                        <span style="align-self:center;">~</span>
+                        <input id="mealBreakfastEnd" type="time" value="${escapeHtml(mealPeriods?.breakfast?.end || defaultMealPeriods.breakfast.end)}" />
+                      </div>
+                    </div>
+                    <div class="form-field">
+                      <label>午餐</label>
+                      <div class="actions-row">
+                        <input id="mealLunchStart" type="time" value="${escapeHtml(mealPeriods?.lunch?.start || defaultMealPeriods.lunch.start)}" />
+                        <span style="align-self:center;">~</span>
+                        <input id="mealLunchEnd" type="time" value="${escapeHtml(mealPeriods?.lunch?.end || defaultMealPeriods.lunch.end)}" />
+                      </div>
+                    </div>
+                    <div class="form-field">
+                      <label>晚餐</label>
+                      <div class="actions-row">
+                        <input id="mealDinnerStart" type="time" value="${escapeHtml(mealPeriods?.dinner?.start || defaultMealPeriods.dinner.start)}" />
+                        <span style="align-self:center;">~</span>
+                        <input id="mealDinnerEnd" type="time" value="${escapeHtml(mealPeriods?.dinner?.end || defaultMealPeriods.dinner.end)}" />
+                      </div>
+                    </div>
+                    <div class="form-field">
+                      <label>宵夜</label>
+                      <div class="actions-row">
+                        <input id="mealLateNightStart" type="time" value="${escapeHtml(mealPeriods?.late_night?.start || defaultMealPeriods.late_night.start)}" />
+                        <span style="align-self:center;">~</span>
+                        <input id="mealLateNightEnd" type="time" value="${escapeHtml(mealPeriods?.late_night?.end || defaultMealPeriods.late_night.end)}" />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1052,7 +1468,6 @@
 
                 <div class="form-field full">
                   <div class="actions-row">
-                    <button class="btn" onclick="saveSettings()">儲存設定</button>
                     <button class="btn" onclick="exportData('json')">匯出 JSON</button>
                     <button class="btn" onclick="exportData('csv')">匯出 CSV</button>
                   </div>
@@ -1082,23 +1497,42 @@
     }
 
     function rerenderTagSections() {
-      const categoryEl = document.getElementById('categoryChips');
-      if (categoryEl) categoryEl.innerHTML = chipsHtml(categoryTags, 'removeCategoryTag');
+      const expenseEl = document.getElementById('expenseCategoryChips');
+      if (expenseEl) expenseEl.innerHTML = chipsHtml(expenseCategoryTags, 'removeExpenseCategoryTag');
+      const incomeEl = document.getElementById('incomeCategoryChips');
+      if (incomeEl) incomeEl.innerHTML = chipsHtml(incomeCategoryTags, 'removeIncomeCategoryTag');
+      const budgetRowsEl = document.getElementById('categoryBudgetRows');
+      if (budgetRowsEl) budgetRowsEl.innerHTML = renderCategoryBudgetRows();
       const styleEl = document.getElementById('styleChips');
       if (styleEl) styleEl.innerHTML = chipsHtml(styleTags, 'removeStyleTag');
     }
 
-    function addCategoryTag() {
-      const input = document.getElementById('categoryTagInput');
+    function addExpenseCategoryTag() {
+      const input = document.getElementById('expenseCategoryTagInput');
       const value = String(input?.value || '').trim();
       if (!value) return;
-      categoryTags = dedupeTags([...categoryTags, value]);
+      expenseCategoryTags = dedupeTags([...(expenseCategoryTags || []), value]);
       if (input) input.value = '';
       rerenderTagSections();
     }
 
-    function removeCategoryTag(tag) {
-      categoryTags = categoryTags.filter((item) => item.toLowerCase() !== String(tag).toLowerCase());
+    function removeExpenseCategoryTag(tag) {
+      expenseCategoryTags = expenseCategoryTags.filter((item) => item.toLowerCase() !== String(tag).toLowerCase());
+      delete categoryBudgets[tag];
+      rerenderTagSections();
+    }
+
+    function addIncomeCategoryTag() {
+      const input = document.getElementById('incomeCategoryTagInput');
+      const value = String(input?.value || '').trim();
+      if (!value) return;
+      incomeCategoryTags = dedupeTags([...(incomeCategoryTags || []), value]);
+      if (input) input.value = '';
+      rerenderTagSections();
+    }
+
+    function removeIncomeCategoryTag(tag) {
+      incomeCategoryTags = incomeCategoryTags.filter((item) => item.toLowerCase() !== String(tag).toLowerCase());
       rerenderTagSections();
     }
 
@@ -1139,6 +1573,25 @@
       ));
     }
 
+    function updateCategoryBudgetValue(encodedTag, value) {
+      const tag = decodeURIComponent(encodedTag || '');
+      const text = String(value || '').trim().replace(/[,\s]/g, '');
+      if (!tag) return;
+      if (!text) {
+        delete categoryBudgets[tag];
+        return;
+      }
+      const amount = Number(text);
+      if (!Number.isFinite(amount) || amount < 0) {
+        return;
+      }
+      if (amount === 0) {
+        delete categoryBudgets[tag];
+        return;
+      }
+      categoryBudgets[tag] = Math.round(amount);
+    }
+
     function parseBudgetInput(text) {
       const normalized = String(text || '').replace(/[,\s]/g, '');
       if (!/^\d+$/.test(normalized)) return null;
@@ -1149,6 +1602,42 @@
 
     function isValidTime(text) {
       return /^([01]?\d|2[0-3]):([0-5]\d)$/.test(String(text || '').trim());
+    }
+
+    function readMealPeriodsFromInputs() {
+      const periods = {
+        breakfast: {
+          start: String(document.getElementById('mealBreakfastStart')?.value || '').trim(),
+          end: String(document.getElementById('mealBreakfastEnd')?.value || '').trim(),
+        },
+        lunch: {
+          start: String(document.getElementById('mealLunchStart')?.value || '').trim(),
+          end: String(document.getElementById('mealLunchEnd')?.value || '').trim(),
+        },
+        dinner: {
+          start: String(document.getElementById('mealDinnerStart')?.value || '').trim(),
+          end: String(document.getElementById('mealDinnerEnd')?.value || '').trim(),
+        },
+        late_night: {
+          start: String(document.getElementById('mealLateNightStart')?.value || '').trim(),
+          end: String(document.getElementById('mealLateNightEnd')?.value || '').trim(),
+        },
+      };
+
+      const labels = {
+        breakfast: '早餐',
+        lunch: '午餐',
+        dinner: '晚餐',
+        late_night: '宵夜',
+      };
+      for (const key of Object.keys(periods)) {
+        const start = periods[key].start;
+        const end = periods[key].end;
+        if (!isValidTime(start) || !isValidTime(end)) {
+          return { error: `${labels[key]}時段格式錯誤，請使用 HH:mm` };
+        }
+      }
+      return { value: periods };
     }
 
     async function saveSettings() {
@@ -1171,6 +1660,12 @@
         return;
       }
 
+      const mealPeriodsResult = readMealPeriodsFromInputs();
+      if (mealPeriodsResult.error) {
+        setStatus(mealPeriodsResult.error, true);
+        return;
+      }
+
       const payload = {
         budget: budgetValue,
         reminderTime,
@@ -1179,11 +1674,19 @@
         currency: currencyValue.toUpperCase(),
         showBalanceInName: document.getElementById('showBalanceInNameInput').value === 'true',
         vehicleSyncEnabled: document.getElementById('vehicleSyncInput').value === 'true',
-        categoriesText: dedupeTags(categoryTags).join('\n'),
+        categoriesText: dedupeTags(getAllCategoryTags()).join('\n'),
+        categoryBudgetsText: serializeCategoryBudgets(categoryBudgets),
+        mealPeriodsText: serializeMealPeriods(mealPeriodsResult.value),
         chatStyleTagsText: dedupeTags(styleTags).join('\n'),
         recurringItemsText: recurringRowsToText(recurringRows),
       };
-      setStatus('儲存中...');
+      const categoryBudgetTotal = Object.values(categoryBudgets || {}).reduce((sum, v) => sum + Number(v || 0), 0);
+      if (categoryBudgetTotal > budgetValue) {
+        setStatus(`分類預算總和（${categoryBudgetTotal.toLocaleString()}）不可超過每月預算（${budgetValue.toLocaleString()}）`, true);
+        return;
+      }
+      setSaveButtonsLoading(true);
+      setStatus('⏳ 設定儲存中，請稍候…', false, 'pending');
       try {
         const res = await fetch(`/api/channel/${channelId}/settings`, {
           method: 'PUT',
@@ -1192,9 +1695,15 @@
         });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || '儲存失敗');
-        setStatus('已儲存', false);
+        settingsPanelOpen = false;
+        await loadData();
+        setStatus('✅ 設定已儲存', false, 'success');
+        showSaveToast('✅ 設定已儲存', 'success');
       } catch (error) {
         setStatus(`儲存失敗：${error.message}`, true);
+        showSaveToast(`❌ 儲存失敗：${error.message}`, 'error');
+      } finally {
+        setSaveButtonsLoading(false);
       }
     }
 
@@ -1237,15 +1746,33 @@
       return (currentMonthTransactions || []).find((item) => Number(item.id) === Number(id)) || null;
     }
 
-    function renderEditCategoryOptions(currentCategory = '') {
-      const select = document.getElementById('editCategory');
-      if (!select) return;
-      const selected = String(currentCategory || '').trim() || '未分類';
-      const baseTags = dedupeTags([...(categoryTags || []), selected, '未分類']);
-      select.innerHTML = baseTags
-        .map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`)
-        .join('');
-      select.value = selected;
+    function toDateInputValue(timestamp) {
+      if (!timestamp) return '';
+      const d = new Date(timestamp);
+      if (Number.isNaN(d.getTime())) return '';
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function toTimeInputValue(timestamp) {
+      if (!timestamp) return '00:00';
+      const d = new Date(timestamp);
+      if (Number.isNaN(d.getTime())) return '00:00';
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+
+    function formatDateTimeText(timestamp) {
+      if (!timestamp) return '-';
+      const d = new Date(timestamp);
+      if (Number.isNaN(d.getTime())) return String(timestamp);
+      const date = d.toLocaleDateString('zh-TW');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${date} ${hh}:${mm}`;
     }
 
     function openEditTransaction(id) {
@@ -1256,9 +1783,11 @@
       }
       editingTransactionId = Number(id);
       document.getElementById('editAmount').value = String(Number(tx.amount || 0));
-      renderEditCategoryOptions(String(tx.category || ''));
-      document.getElementById('editNote').value = String(tx.note || '');
       document.getElementById('editType').value = tx.type === 'income' ? 'income' : 'expense';
+      renderEditCategoryOptions(String(tx.category || ''), tx.type === 'income' ? 'income' : 'expense');
+      document.getElementById('editDate').value = toDateInputValue(tx.timestamp) || toDateInputValue(new Date().toISOString());
+      document.getElementById('editTime').value = toTimeInputValue(tx.timestamp);
+      document.getElementById('editNote').value = String(tx.note || '');
       document.getElementById('editTxStatus').textContent = '';
       document.getElementById('txEditModal').classList.add('open');
     }
@@ -1283,8 +1812,17 @@
       const category = String(document.getElementById('editCategory').value || '').trim() || '未分類';
       const note = String(document.getElementById('editNote').value || '').trim();
       const type = document.getElementById('editType').value === 'income' ? 'income' : 'expense';
-      const existingTx = findTransactionById(editingTransactionId);
-      const timestamp = String(existingTx?.timestamp || new Date().toISOString());
+      const editDate = String(document.getElementById('editDate').value || '').trim();
+      const editTime = String(document.getElementById('editTime').value || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(editDate)) {
+        document.getElementById('editTxStatus').textContent = '日期格式錯誤，請重新選擇日期';
+        return;
+      }
+      if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(editTime)) {
+        document.getElementById('editTxStatus').textContent = '時間格式錯誤，請使用 HH:mm';
+        return;
+      }
+      let timestamp = `${editDate}T${editTime}:00`;
       try {
         const res = await fetch(`/api/channel/${channelId}/transactions/${editingTransactionId}`, {
           method: 'PUT',
@@ -1338,14 +1876,14 @@
         html += `<li class="transaction group-header"><div class="t-info"><strong style="${groupStyle};padding:4px 8px;border-radius:999px;border:1px solid #2a2a4a;display:inline-block;">${escapeHtml(groupKey)}</strong></div><div class="t-time">${list.length} 筆</div></li>`;
         list.forEach((t) => {
           const amountPrefix = t.type === 'income' ? '+' : '-';
-          const date = new Date(t.timestamp).toLocaleDateString('zh-TW');
+          const dateTime = formatDateTimeText(t.timestamp);
           const categoryStyle = getCategoryBadgeStyle(t.category, t.type);
           html += `
             <li class="transaction">
               <div class="t-info">
                 <span class="t-category" style="${categoryStyle}">${escapeHtml(t.category)}</span>
                 <div class="t-note">${escapeHtml(normalizeTransactionNote(t.note))}</div>
-                <div class="t-time">${escapeHtml(date)}</div>
+                <div class="t-time">${escapeHtml(dateTime)}</div>
               </div>
               <div class="t-amount ${escapeHtml(t.type)}">${amountPrefix}NT$ ${Number(t.amount).toLocaleString()}</div>
               <div class="t-actions">
@@ -1395,43 +1933,46 @@
       return `<ul class="transactions">${items}</ul>`;
     }
 
-    function getCategoryBadgeStyle(category, type = 'expense') {
+    function getCategoryColorToken(category, type = 'expense') {
       const text = String(category || '未分類').trim();
       const fixedMap = {
-        '餐飲': ['#6d28d9', '#f3e8ff'],
-        '交通': ['#1d4ed8', '#dbeafe'],
-        '購物': ['#be185d', '#fce7f3'],
-        '娛樂': ['#ea580c', '#ffedd5'],
-        '房租/帳單': ['#0f766e', '#ccfbf1'],
-        '日常生活': ['#4338ca', '#e0e7ff'],
-        '醫療': ['#047857', '#d1fae5'],
-        '教育': ['#7c2d12', '#ffedd5'],
-        '投資': ['#065f46', '#d1fae5'],
-        '禮物': ['#9d174d', '#fce7f3'],
-        '其他': ['#374151', '#f3f4f6'],
-        '薪資': ['#15803d', '#dcfce7'],
-        '兼職': ['#166534', '#dcfce7'],
-        '被動收入': ['#14532d', '#dcfce7'],
-        '紅包': ['#b91c1c', '#fee2e2'],
-        '生活費': ['#7e22ce', '#f3e8ff'],
+        '餐飲': { badgeBg: '#6d28d9', badgeFg: '#f3e8ff', chart: '#8b5cf6' },
+        '交通': { badgeBg: '#1d4ed8', badgeFg: '#dbeafe', chart: '#3b82f6' },
+        '購物': { badgeBg: '#be185d', badgeFg: '#fce7f3', chart: '#ec4899' },
+        '娛樂': { badgeBg: '#ea580c', badgeFg: '#ffedd5', chart: '#f97316' },
+        '房租/帳單': { badgeBg: '#0f766e', badgeFg: '#ccfbf1', chart: '#14b8a6' },
+        '住宿': { badgeBg: '#0e7490', badgeFg: '#cffafe', chart: '#06b6d4' },
+        '日常生活': { badgeBg: '#4338ca', badgeFg: '#e0e7ff', chart: '#6366f1' },
+        '醫療': { badgeBg: '#047857', badgeFg: '#d1fae5', chart: '#10b981' },
+        '教育': { badgeBg: '#7c2d12', badgeFg: '#ffedd5', chart: '#f59e0b' },
+        '投資': { badgeBg: '#065f46', badgeFg: '#d1fae5', chart: '#059669' },
+        '禮物': { badgeBg: '#9d174d', badgeFg: '#fce7f3', chart: '#db2777' },
+        '其他': { badgeBg: '#374151', badgeFg: '#f3f4f6', chart: '#6b7280' },
+        '未分類': { badgeBg: '#374151', badgeFg: '#f3f4f6', chart: '#6b7280' },
+        '薪資': { badgeBg: '#15803d', badgeFg: '#dcfce7', chart: '#22c55e' },
+        '兼職': { badgeBg: '#166534', badgeFg: '#dcfce7', chart: '#16a34a' },
+        '被動收入': { badgeBg: '#14532d', badgeFg: '#dcfce7', chart: '#15803d' },
+        '紅包': { badgeBg: '#b91c1c', badgeFg: '#fee2e2', chart: '#ef4444' },
+        '生活費': { badgeBg: '#7e22ce', badgeFg: '#f3e8ff', chart: '#a855f7' },
+        '收入': { badgeBg: '#15803d', badgeFg: '#dcfce7', chart: '#22c55e' },
       };
-
-      if (fixedMap[text]) {
-        const [bg, fg] = fixedMap[text];
-        return `background:${bg};color:${fg};border-color:${bg};`;
-      }
+      if (fixedMap[text]) return fixedMap[text];
 
       const palette = [
-        ['#334155', '#e2e8f0'],
-        ['#1e3a8a', '#dbeafe'],
-        ['#4c1d95', '#ede9fe'],
-        ['#7f1d1d', '#fee2e2'],
-        ['#14532d', '#dcfce7'],
+        { badgeBg: '#334155', badgeFg: '#e2e8f0', chart: '#64748b' },
+        { badgeBg: '#1e3a8a', badgeFg: '#dbeafe', chart: '#3b82f6' },
+        { badgeBg: '#4c1d95', badgeFg: '#ede9fe', chart: '#8b5cf6' },
+        { badgeBg: '#7f1d1d', badgeFg: '#fee2e2', chart: '#ef4444' },
+        { badgeBg: '#14532d', badgeFg: '#dcfce7', chart: '#22c55e' },
       ];
       const key = `${text}|${type}`;
       const hash = Array.from(key).reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 997, 0);
-      const [bg, fg] = palette[hash % palette.length];
-      return `background:${bg};color:${fg};border-color:${bg};`;
+      return palette[hash % palette.length];
+    }
+
+    function getCategoryBadgeStyle(category, type = 'expense') {
+      const token = getCategoryColorToken(category, type);
+      return `background:${token.badgeBg};color:${token.badgeFg};border-color:${token.badgeBg};`;
     }
 
     function renderPieCharts(analytics) {
@@ -1443,18 +1984,36 @@
       const expenseValues = (analytics.expenseByCategory || []).map((x) => x.total);
       const incomeLabels = (analytics.incomeByCategory || []).map((x) => x.category);
       const incomeValues = (analytics.incomeByCategory || []).map((x) => x.total);
+      const expenseColors = expenseLabels.map((label) => getCategoryColorToken(label, 'expense').chart);
+      const incomeColors = incomeLabels.map((label) => getCategoryColorToken(label, 'income').chart);
 
       if (chartExpense) chartExpense.destroy();
       if (chartIncome) chartIncome.destroy();
 
       chartExpense = new Chart(expenseCtx, {
         type: 'pie',
-        data: { labels: expenseLabels, datasets: [{ data: expenseValues }] },
+        data: {
+          labels: expenseLabels,
+          datasets: [{
+            data: expenseValues,
+            backgroundColor: expenseColors,
+            borderColor: '#e5e7eb',
+            borderWidth: 1.5,
+          }],
+        },
         options: { plugins: { title: { display: true, text: '支出分類占比' }, legend: { labels: { color: '#e0e0e0' } } } },
       });
       chartIncome = new Chart(incomeCtx, {
         type: 'pie',
-        data: { labels: incomeLabels, datasets: [{ data: incomeValues }] },
+        data: {
+          labels: incomeLabels,
+          datasets: [{
+            data: incomeValues,
+            backgroundColor: incomeColors,
+            borderColor: '#e5e7eb',
+            borderWidth: 1.5,
+          }],
+        },
         options: { plugins: { title: { display: true, text: '收入分類占比' }, legend: { labels: { color: '#e0e0e0' } } } },
       });
     }
@@ -1480,8 +2039,11 @@
     window.deleteTransaction = deleteTransaction;
     window.saveSettings = saveSettings;
     window.toggleSettingsPanel = toggleSettingsPanel;
-    window.addCategoryTag = addCategoryTag;
-    window.removeCategoryTag = removeCategoryTag;
+    window.addExpenseCategoryTag = addExpenseCategoryTag;
+    window.removeExpenseCategoryTag = removeExpenseCategoryTag;
+    window.addIncomeCategoryTag = addIncomeCategoryTag;
+    window.removeIncomeCategoryTag = removeIncomeCategoryTag;
+    window.onEditTypeChange = onEditTypeChange;
     window.addStyleTag = addStyleTag;
     window.removeStyleTag = removeStyleTag;
     window.addRecurringRow = addRecurringRow;
@@ -1491,6 +2053,7 @@
     window.exportData = exportData;
     window.changeMonthPart = changeMonthPart;
     window.changeListMode = changeListMode;
+    window.updateCategoryBudgetValue = updateCategoryBudgetValue;
   </script>
 </body>
 </html>

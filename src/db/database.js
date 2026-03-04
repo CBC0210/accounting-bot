@@ -67,6 +67,12 @@ function migrateSchema() {
   if (!hasColumn('channel_settings', 'chat_style_tags_text')) {
     db.run(`ALTER TABLE channel_settings ADD COLUMN chat_style_tags_text TEXT`);
   }
+  if (!hasColumn('channel_settings', 'category_budgets_text')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN category_budgets_text TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'meal_periods_text')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN meal_periods_text TEXT`);
+  }
 }
 
 async function initDatabase() {
@@ -118,6 +124,8 @@ async function initDatabase() {
       vehicle_sync_enabled INTEGER DEFAULT 0,
       recurring_items_text TEXT,
       chat_style_tags_text TEXT,
+      category_budgets_text TEXT,
+      meal_periods_text TEXT,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
@@ -195,6 +203,15 @@ async function initDatabase() {
     )
   `);
 
+  // 舊資料兼容：若 timestamp 只有日期（YYYY-MM-DD），補上預設時間 00:00:00
+  db.run(`
+    UPDATE transactions
+    SET timestamp = timestamp || 'T00:00:00'
+    WHERE timestamp IS NOT NULL
+      AND LENGTH(timestamp) = 10
+      AND instr(timestamp, 'T') = 0
+  `);
+
   db.run(`DROP TRIGGER IF EXISTS trg_tx_insert_event`);
   db.run(`DROP TRIGGER IF EXISTS trg_tx_update_event`);
   db.run(`DROP TRIGGER IF EXISTS trg_tx_delete_event`);
@@ -269,7 +286,8 @@ async function initDatabase() {
         'type=' || COALESCE(NEW.type, 'personal')
           || ' title=' || COALESCE(NEW.user_title, '')
           || ' budget=' || COALESCE(NEW.budget, 0)
-          || ' reminder=' || COALESCE(NEW.reminder_time, ''),
+          || ' reminder=' || COALESCE(NEW.reminder_time, '')
+          || ' categories=' || COALESCE(REPLACE(REPLACE(NEW.categories_text, char(13), ''), char(10), ','), ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
@@ -284,9 +302,11 @@ async function initDatabase() {
         'channel_settings',
         'update',
         'budget:' || COALESCE(OLD.budget, 0) || '->' || COALESCE(NEW.budget, 0)
-          || ' reminder:' || COALESCE(OLD.reminder_time, '') || '->' || COALESCE(NEW.reminder_time, '')
-          || ' title:' || COALESCE(OLD.user_title, '') || '->' || COALESCE(NEW.user_title, '')
-          || ' showBalance:' || COALESCE(OLD.show_balance_in_name, 1) || '->' || COALESCE(NEW.show_balance_in_name, 1),
+          || ' || reminder:' || COALESCE(OLD.reminder_time, '') || '->' || COALESCE(NEW.reminder_time, '')
+          || ' || title:' || COALESCE(OLD.user_title, '') || '->' || COALESCE(NEW.user_title, '')
+          || ' || showBalance:' || COALESCE(OLD.show_balance_in_name, 1) || '->' || COALESCE(NEW.show_balance_in_name, 1)
+          || ' || categories:' || COALESCE(REPLACE(REPLACE(OLD.categories_text, char(13), ''), char(10), ','), '')
+          || '->' || COALESCE(REPLACE(REPLACE(NEW.categories_text, char(13), ''), char(10), ','), ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;

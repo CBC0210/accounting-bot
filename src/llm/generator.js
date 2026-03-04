@@ -41,7 +41,10 @@ function resolveAnthropicBaseUrl(baseUrl) {
 function getTextFromAnthropicContent(content) {
   if (!Array.isArray(content)) return null;
   const textBlocks = content
-    .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
+    .filter((block) => block && (
+      (block.type === 'text' && typeof block.text === 'string')
+      || (typeof block.text === 'string')
+    ))
     .map((block) => block.text.trim())
     .filter(Boolean);
   return textBlocks.length ? textBlocks.join('\n') : null;
@@ -68,7 +71,10 @@ async function callMiniMaxAnthropic(prompt, systemPrompt) {
     },
     body: JSON.stringify({
       model: MINIMAX_MODEL,
-      max_tokens: 512,
+      max_tokens: 1024,
+      temperature: 0.1,
+      // 嘗試關閉思考模式，避免只回傳 thinking 區塊導致無法解析
+      thinking: { type: 'disabled' },
       system: systemPrompt,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     }),
@@ -137,7 +143,12 @@ async function callMiniMax(prompt, systemPrompt = '你是一個記帳機器人�
 
   try {
     if (MINIMAX_API_STYLE === 'anthropic') {
-      return await callMiniMaxAnthropic(prompt, systemPrompt);
+      const anthropicResult = await callMiniMaxAnthropic(prompt, systemPrompt);
+      if (anthropicResult) return anthropicResult;
+      // anthropic 解析失敗時，嘗試標準端點，提升穩定性
+      const standardResult = await callMiniMaxStandard(prompt, systemPrompt);
+      if (standardResult) return standardResult;
+      return null;
     }
     if (MINIMAX_API_STYLE === 'standard') {
       return await callMiniMaxStandard(prompt, systemPrompt);
@@ -477,14 +488,76 @@ ${userQuery}
   };
 }
 
+async function planTransactionActionWithLLM(content, context = {}) {
+  const allowedCategories = Array.isArray(context.allowedCategories) ? context.allowedCategories : [];
+  const categoryHint = allowedCategories.length ? allowedCategories.join('、') : '（未設定）';
+  const referencedId = Number(context.referencedId || 0) || null;
+  const prompt = `你是交易管理意圖解析器，請把使用者句子解析成 JSON 計畫。
+
+使用者句子：
+${content}
+
+上下文：
+- 可用分類：${categoryHint}
+- 若使用者是「回覆某則訊息」：replied_transaction_id=${referencedId ?? 'null'}
+
+請只回傳 JSON：
+{
+  "action": "update|delete|none",
+  "id": 數字或null,
+  "updates": {
+    "amount": 數字或null,
+    "type": "income|expense|null",
+    "category": "字串或null",
+    "note": "字串或null"
+  },
+  "needs_clarification": true/false,
+  "follow_up_question": "若缺資訊則追問，否則 null"
+}
+
+規則：
+1) 像「刪除、刪掉、移除」判為 delete。
+2) 像「修改、改成、改為、更正、修正」判為 update。
+3) 若句子沒有明確 id，但是回覆訊息且 action 不是 none，可把 id 設為 replied_transaction_id。
+4) 若是 update 但缺更新內容，needs_clarification=true 並給追問。
+5) category 必須優先使用可用分類，不能亂造。`;
+
+  const response = await callMiniMax(prompt, '你是嚴格 JSON 輸出器，只回 JSON');
+  const parsed = safeParseJsonFromText(response);
+  if (!parsed || !parsed.action) return null;
+  const updates = parsed.updates && typeof parsed.updates === 'object' ? parsed.updates : {};
+  return {
+    action: parsed.action,
+    id: Number.isFinite(Number(parsed.id)) ? Number(parsed.id) : null,
+    updates: {
+      amount: Number.isFinite(Number(updates.amount)) ? Number(updates.amount) : null,
+      type: typeof updates.type === 'string' ? updates.type : null,
+      category: typeof updates.category === 'string' ? updates.category : null,
+      note: typeof updates.note === 'string' ? updates.note : null,
+    },
+    needsClarification: Boolean(parsed.needs_clarification),
+    followUpQuestion: typeof parsed.follow_up_question === 'string' ? parsed.follow_up_question : null,
+  };
+}
+
 async function generateChatResponse(message, context = {}) {
   const styleTags = Array.isArray(context.styleTags) ? context.styleTags.filter(Boolean) : [];
   const styleHint = styleTags.length ? styleTags.join('、') : '輕鬆、友善';
-  const prompt = `這是使用者的訊息：${message}
+  const history = Array.isArray(context.history) ? context.history : [];
+  const historyText = history.length
+    ? history.map((item) => {
+      const role = item?.role === 'assistant' ? '機器人' : '使用者';
+      return `${role}：${String(item?.content || '').trim()}`;
+    }).join('\n')
+    : '（無）';
+  const prompt = `最近對話（最多10段）：
+${historyText}
+
+這是使用者的最新訊息：${message}
 
 對話風格標籤：${styleHint}
 
-請用簡短一句話回應（不超過30字），可以調侃、關心、或正常聊天。`;
+請參考最近對話脈絡，回覆一段自然、連貫的短回應（不超過30字），可以調侃、關心、或正常聊天。`;
   const response = await callMiniMax(prompt);
   return response || '哦';
 }
@@ -504,4 +577,5 @@ module.exports = {
   generateDataAnalysisResponse,
   parseTransactionFromImageWithLLM,
   planDataQueryWithLLM,
+  planTransactionActionWithLLM,
 };

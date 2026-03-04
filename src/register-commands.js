@@ -134,9 +134,9 @@ const commands = [
     description_localizations: { 'en-US': 'Set up this channel as accounting channel' },
   },
   {
-    name: '初始化-共同記賬',
+    name: '初始化-共同記帳',
     name_localizations: { 'en-US': 'init-shared-ledger' },
-    description: '初始化此伺服器唯一共同賬本頻道',
+    description: '初始化此伺服器唯一共同帳本頻道',
     description_localizations: { 'en-US': 'Initialize shared ledger channel for this guild' },
   },
 ];

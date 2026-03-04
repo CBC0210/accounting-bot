@@ -25,6 +25,12 @@ function buildEventLabel(row) {
 function prettifySummary(summary) {
   const text = String(summary || '').trim();
   if (!text) return '資料變更';
+
+  if (text.includes('categories:') || text.includes(' || ')) {
+    const formatted = prettifySettingsUpdateSummary(text);
+    if (formatted) return formatted;
+  }
+
   const normalized = text
     .replace(/\s+/g, ' ')
     .replace(/->/g, ' → ')
@@ -49,6 +55,65 @@ function prettifySummary(summary) {
   }
 
   return normalized;
+}
+
+function prettifySettingsUpdateSummary(text) {
+  const segments = String(text || '')
+    .split('||')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!segments.length) return '';
+
+  const lines = [];
+  segments.forEach((segment) => {
+    const idx = segment.indexOf(':');
+    if (idx <= 0) return;
+    const key = segment.slice(0, idx).trim();
+    const rest = segment.slice(idx + 1).trim();
+    const arrowIdx = rest.indexOf('->');
+    if (arrowIdx < 0) return;
+    const oldValue = rest.slice(0, arrowIdx).trim();
+    const newValue = rest.slice(arrowIdx + 2).trim();
+    if (oldValue === newValue) return;
+
+    if (key === 'categories') {
+      const oldTags = toTagSet(oldValue);
+      const newTags = toTagSet(newValue);
+      const added = [...newTags].filter((x) => !oldTags.has(x));
+      const removed = [...oldTags].filter((x) => !newTags.has(x));
+      if (added.length) lines.push(`分類新增：${added.join('、')}`);
+      if (removed.length) lines.push(`分類移除：${removed.join('、')}`);
+      if (!added.length && !removed.length) {
+        lines.push('分類設定已更新');
+      }
+      return;
+    }
+
+    if (key === 'showBalance') {
+      const oldLabel = oldValue === '1' ? '開啟' : '關閉';
+      const newLabel = newValue === '1' ? '開啟' : '關閉';
+      lines.push(`頻道顯示餘額：${oldLabel} -> ${newLabel}`);
+      return;
+    }
+
+    const labelMap = {
+      budget: '每月預算',
+      reminder: '提醒時間',
+      title: '稱呼',
+    };
+    const label = labelMap[key] || key;
+    lines.push(`${label}：${oldValue || '(空)'} -> ${newValue || '(空)'}`);
+  });
+
+  return lines.length ? lines.map((line) => `- ${line}`).join('\n') : '';
+}
+
+function toTagSet(text) {
+  const tags = String(text || '')
+    .split(/[,\n、，]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return new Set(tags);
 }
 
 function formatChangeLine(row) {

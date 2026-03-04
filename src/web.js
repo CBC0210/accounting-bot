@@ -90,18 +90,81 @@ function resolveMonthRange(year, month) {
   if (!Number.isFinite(y) || !Number.isFinite(m) || y < 2000 || m < 1 || m > 12) {
     return null;
   }
-  const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
-  const end = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
+  // 使用本地時區月界線，避免 3/1 被視為 2 月（UTC 偏移）問題
+  const start = new Date(y, m - 1, 1, 0, 0, 0, 0);
+  const end = new Date(y, m, 1, 0, 0, 0, 0);
   return { startIso: start.toISOString(), endIso: end.toISOString(), year: y, month: m };
 }
 
 function getLedgerDisplayNameFromSettingsRow(row) {
   const type = String(row?.type || 'personal');
-  if (type === 'shared') return '共同賬本';
+  if (type === 'shared') return '共同帳本';
   const title = String(row?.user_title || '').trim();
-  if (title) return `${title}的賬本`;
+  if (title) return `${title}的帳本`;
   const fallback = String(row?.name || '').trim();
-  return fallback || '個人賬本';
+  return fallback || '個人帳本';
+}
+
+function parseCategoryBudgetsInput(value) {
+  if (value === null || value === undefined || value === '') return {};
+  const raw = typeof value === 'string' ? value : JSON.stringify(value);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error('分類預算格式錯誤，需為 JSON 物件');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('分類預算格式錯誤，需為 {分類:預算} 物件');
+  }
+  const out = {};
+  Object.entries(parsed).forEach(([key, amount]) => {
+    const category = String(key || '').trim();
+    if (!category) return;
+    if (amount === null || amount === undefined || amount === '') return;
+    const numeric = Number(amount);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      throw new Error(`分類「${category}」預算必須為 0 或正數`);
+    }
+    if (numeric === 0) return;
+    out[category] = Math.round(numeric);
+  });
+  return out;
+}
+
+function parseMealPeriodsInput(value) {
+  const defaults = {
+    breakfast: { start: '05:00', end: '10:59' },
+    lunch: { start: '11:00', end: '15:59' },
+    dinner: { start: '16:00', end: '21:59' },
+    late_night: { start: '22:00', end: '04:59' },
+  };
+  if (value === null || value === undefined || value === '') return defaults;
+
+  const raw = typeof value === 'string' ? value : JSON.stringify(value);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error('餐期時段格式錯誤，需為 JSON 物件');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('餐期時段格式錯誤，需為物件');
+  }
+
+  const keys = ['breakfast', 'lunch', 'dinner', 'late_night'];
+  const out = {};
+  keys.forEach((key) => {
+    const src = parsed[key] || defaults[key];
+    const start = String(src?.start || '').trim();
+    const end = String(src?.end || '').trim();
+    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(start) || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(end)) {
+      throw new Error(`餐期「${key}」時間格式錯誤，請使用 HH:mm`);
+    }
+    out[key] = { start, end };
+  });
+
+  return out;
 }
 
 function withReadonlyDb(handler) {
@@ -216,7 +279,7 @@ app.get('/api/channel/:channelId/settings', withReadonlyDb((req, res, db) => {
   const row = db.prepare(`
     SELECT channel_id, name, budget, reminder_time, split_books, user_gender, user_title, categories_text,
            currency, show_balance_in_name, vehicle_sync_enabled, recurring_items_text,
-           chat_style_tags_text
+           chat_style_tags_text, category_budgets_text, meal_periods_text, type
     FROM channel_settings
     WHERE channel_id = ?
   `).get(channelId);
@@ -236,6 +299,8 @@ app.get('/api/channel/:channelId/settings', withReadonlyDb((req, res, db) => {
     vehicleSyncEnabled: Number(row?.vehicle_sync_enabled ?? 0) === 1,
     recurringItemsText: row?.recurring_items_text || '',
     chatStyleTagsText: row?.chat_style_tags_text || '',
+    categoryBudgetsText: row?.category_budgets_text || '',
+    mealPeriodsText: row?.meal_periods_text || '',
   });
 }));
 
@@ -255,6 +320,8 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
     vehicleSyncEnabled = false,
     recurringItemsText = '',
     chatStyleTagsText = '',
+    categoryBudgetsText = '',
+    mealPeriodsText = '',
   } = req.body || {};
 
   if (!Number.isFinite(Number(budget)) || Number(budget) < 0) {
@@ -273,13 +340,27 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
     res.status(400).json({ error: '性別格式錯誤' });
     return;
   }
+  let parsedCategoryBudgets;
+  let parsedMealPeriods;
+  try {
+    parsedCategoryBudgets = parseCategoryBudgetsInput(categoryBudgetsText);
+    parsedMealPeriods = parseMealPeriodsInput(mealPeriodsText);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+    return;
+  }
+  const categoryBudgetTotal = Object.values(parsedCategoryBudgets).reduce((sum, v) => sum + Number(v || 0), 0);
+  if (categoryBudgetTotal > Number(budget)) {
+    res.status(400).json({ error: '分類預算總和不可超過每月預算' });
+    return;
+  }
 
   db.prepare(`
     INSERT INTO channel_settings (
       channel_id, budget, reminder_time, split_books, user_gender, user_title, categories_text,
       currency, ledgers_text, show_balance_in_name, vehicle_sync_enabled, recurring_items_text,
-      chat_style_tags_text, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      chat_style_tags_text, category_budgets_text, meal_periods_text, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(channel_id) DO UPDATE SET
       budget = excluded.budget,
       reminder_time = excluded.reminder_time,
@@ -293,6 +374,8 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
       vehicle_sync_enabled = excluded.vehicle_sync_enabled,
       recurring_items_text = excluded.recurring_items_text,
       chat_style_tags_text = excluded.chat_style_tags_text,
+      category_budgets_text = excluded.category_budgets_text,
+      meal_periods_text = excluded.meal_periods_text,
       updated_at = excluded.updated_at
   `).run(
     channelId,
@@ -308,6 +391,8 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
     vehicleSyncEnabled ? 1 : 0,
     String(recurringItemsText || ''),
     String(chatStyleTagsText || ''),
+    JSON.stringify(parsedCategoryBudgets),
+    JSON.stringify(parsedMealPeriods),
     new Date().toISOString()
   );
 
@@ -551,8 +636,8 @@ app.post('/api/channel/:channelId/import', withWritableDb((req, res, db) => {
       INSERT INTO channel_settings (
         channel_id, name, budget, type, setup_state, setup_user_id, reminder_time, split_books,
         setup_completed_at, user_gender, user_title, categories_text, currency, ledgers_text,
-        show_balance_in_name, vehicle_sync_enabled, recurring_items_text, chat_style_tags_text, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        show_balance_in_name, vehicle_sync_enabled, recurring_items_text, chat_style_tags_text, category_budgets_text, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(channel_id) DO UPDATE SET
         name = excluded.name,
         budget = excluded.budget,
@@ -568,6 +653,7 @@ app.post('/api/channel/:channelId/import', withWritableDb((req, res, db) => {
         vehicle_sync_enabled = excluded.vehicle_sync_enabled,
         recurring_items_text = excluded.recurring_items_text,
         chat_style_tags_text = excluded.chat_style_tags_text,
+        category_budgets_text = excluded.category_budgets_text,
         updated_at = excluded.updated_at
     `).run(
       channelId,
@@ -588,6 +674,7 @@ app.post('/api/channel/:channelId/import', withWritableDb((req, res, db) => {
       Number(parsedSettings.vehicle_sync_enabled ?? 0) ? 1 : 0,
       parsedSettings.recurring_items_text || '',
       parsedSettings.chat_style_tags_text || '',
+      typeof parsedSettings.category_budgets_text === 'string' ? parsedSettings.category_budgets_text : '',
       new Date().toISOString()
     );
   }

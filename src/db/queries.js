@@ -109,6 +109,14 @@ function setChannelReminderTime(channelId, reminderTime) {
   `, [reminderTime, new Date().toISOString(), channelId]);
 }
 
+function setChannelCategoryBudgets(channelId, categoryBudgetsText) {
+  run(`
+    UPDATE channel_settings
+    SET category_budgets_text = ?, updated_at = ?
+    WHERE channel_id = ?
+  `, [String(categoryBudgetsText || ''), new Date().toISOString(), channelId]);
+}
+
 function setChannelSplitBooks(channelId, splitBooks) {
   run(`
     UPDATE channel_settings
@@ -168,8 +176,9 @@ function getTransactions(userId, limit = 10) {
 }
 
 function getChannelMonthlyExpense(channelId, now = new Date()) {
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+  // 使用本地時區月界線，與 Dashboard 月份查詢一致
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
 
   const row = get(`
     SELECT COALESCE(SUM(amount), 0) AS total
@@ -199,6 +208,35 @@ function getChannelNetBalance(channelId) {
   const income = incomeRow ? Number(incomeRow.total) : 0;
   const expense = expenseRow ? Number(expenseRow.total) : 0;
   return income - expense;
+}
+
+function getChannelMonthlyExpenseByCategory(channelId, category, now = new Date()) {
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
+  const row = get(`
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM transactions
+    WHERE channel_id = ?
+      AND type = 'expense'
+      AND category = ?
+      AND timestamp >= ?
+      AND timestamp < ?
+  `, [channelId, String(category || ''), monthStart.toISOString(), nextMonthStart.toISOString()]);
+  return row ? Number(row.total) : 0;
+}
+
+function getChannelTodayExpense(channelId, now = new Date()) {
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const nextDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  const row = get(`
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM transactions
+    WHERE channel_id = ?
+      AND type = 'expense'
+      AND timestamp >= ?
+      AND timestamp < ?
+  `, [channelId, dayStart.toISOString(), nextDayStart.toISOString()]);
+  return row ? Number(row.total) : 0;
 }
 
 function getUserRangeSummary(userId, startIso, endIso) {
@@ -441,6 +479,26 @@ function getChannelDailyMetricSeries(channelId, startIso, endIso, metric = 'expe
   });
 }
 
+function getChannelTransactionsInRange(channelId, startIso, endIso) {
+  return all(`
+    SELECT id, channel_id, user_id, amount, category, note, type, timestamp
+    FROM transactions
+    WHERE channel_id = ?
+      AND timestamp >= ?
+      AND timestamp < ?
+    ORDER BY timestamp ASC, id ASC
+  `, [channelId, startIso, endIso]).map((row) => ({
+    id: Number(row.id),
+    channelId: row.channel_id,
+    userId: row.user_id,
+    amount: Number(row.amount || 0),
+    category: row.category || '未分類',
+    note: row.note || '',
+    type: row.type === 'income' ? 'income' : 'expense',
+    timestamp: row.timestamp,
+  }));
+}
+
 module.exports = {
   addTransaction,
   getUserBalance,
@@ -453,6 +511,7 @@ module.exports = {
   setChannelSetupState,
   setChannelBudget,
   setChannelReminderTime,
+  setChannelCategoryBudgets,
   setChannelSplitBooks,
   setChannelGender,
   setChannelTitle,
@@ -461,10 +520,13 @@ module.exports = {
   clearChannelSettings,
   getTransactions,
   getChannelMonthlyExpense,
+  getChannelMonthlyExpenseByCategory,
+  getChannelTodayExpense,
   getChannelNetBalance,
   getUserRangeSummary,
   getChannelRangeSummary,
   getChannelMetricTotal,
   getChannelCategoryBreakdown,
   getChannelDailyMetricSeries,
+  getChannelTransactionsInRange,
 };

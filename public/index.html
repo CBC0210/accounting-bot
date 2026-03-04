@@ -141,8 +141,8 @@
     <section class="card">
       <h2>🤖 斜線指令（現行）</h2>
       <ul class="cmd-list">
-        <li><span class="cmd-name">/初始化</span><p class="cmd-desc">初始化目前頻道記賬流程</p></li>
-        <li><span class="cmd-name">/初始化-共同記賬</span><p class="cmd-desc">初始化伺服器唯一共同賬本</p></li>
+        <li><span class="cmd-name">/初始化</span><p class="cmd-desc">初始化目前頻道記帳流程</p></li>
+        <li><span class="cmd-name">/初始化-共同記帳</span><p class="cmd-desc">初始化伺服器唯一共同帳本</p></li>
         <li><span class="cmd-name">/記帳 [金額] [分類] [備註]</span><p class="cmd-desc">快速新增支出</p></li>
         <li><span class="cmd-name">/收入 [金額] [來源]</span><p class="cmd-desc">快速新增收入</p></li>
         <li><span class="cmd-name">/查詢 [範圍]</span><p class="cmd-desc">查詢今天/昨天/本週/本月摘要</p></li>
@@ -167,6 +167,56 @@
       <div class="nlp-example">
         <strong>今天買書花了 450</strong> → 書籍 NT$450
       </div>
+      <div class="nlp-example">
+        <strong>午餐 滷味 55 飲料 50</strong> → 一次記錄兩筆交易
+      </div>
+      <div class="nlp-example">
+        <strong>3/2 15:49 ihotel 620</strong> → 含日期時間解析，條目保留正確時間
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>📘 詳細使用方式</h2>
+      <ul class="cmd-list">
+        <li>
+          <span class="cmd-name">1) 初始化</span>
+          <p class="cmd-desc">在要使用的頻道先執行 <code>/初始化</code>（共同帳本用 <code>/初始化-共同記帳</code>），依序完成預算、提醒、稱呼等設定。</p>
+        </li>
+        <li>
+          <span class="cmd-name">2) 記帳</span>
+          <p class="cmd-desc">可用 slash 或自然語句。成功後會回：預算使用量 embed → 記帳成功 embed → 簡短回饋。</p>
+        </li>
+        <li>
+          <span class="cmd-name">3) 查詢明細</span>
+          <p class="cmd-desc">例如：<code>今日消費</code>、<code>3/1 的花費</code>。會顯示摘要 embed + 條目 embed，條目支援上一頁/下一頁。</p>
+        </li>
+        <li>
+          <span class="cmd-name">4) 分析</span>
+          <p class="cmd-desc">建議明確帶關鍵字：<code>分析昨日消費</code>、<code>比較上週和本週支出</code>、<code>本月分類占比分析</code>。</p>
+        </li>
+        <li>
+          <span class="cmd-name">5) 餐期查詢</span>
+          <p class="cmd-desc">可問 <code>早餐花了多少</code>、<code>宵夜開銷</code>。餐期時段可在 Dashboard 設定，並同步顯示於查詢摘要與 /幫助。</p>
+        </li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>👥 共同帳本教學</h2>
+      <ul class="cmd-list">
+        <li>
+          <span class="cmd-name">建立共同帳本</span>
+          <p class="cmd-desc">在指定頻道執行 <code>/初始化-共同記帳</code>，一個伺服器同時只會有一個共同帳本頻道。</p>
+        </li>
+        <li>
+          <span class="cmd-name">個人 → 共同</span>
+          <p class="cmd-desc">在個人頻道輸入 <code>給共同帳本添加 2000</code>，會雙邊入帳並在兩邊頻道送出確認。</p>
+        </li>
+        <li>
+          <span class="cmd-name">共同 → 個人</span>
+          <p class="cmd-desc">在共同帳本可輸入 <code>共同帳本轉給 小明 800</code>（或相近語句），同樣雙邊入帳、雙邊通知。</p>
+        </li>
+      </ul>
     </section>
     
     <section class="card">
@@ -198,7 +248,7 @@
     <section class="card">
       <h2>🌐 網站 Dashboard</h2>
       <p>訪問 <code>https://accounting.bc-verse.com/[頻道ID]</code> 查看該頻道的記帳記錄</p>
-      <p style="margin-top: 10px; color: var(--muted);">可編輯交易、調整設定、查看月分析與分類圖表。</p>
+      <p style="margin-top: 10px; color: var(--muted);">可編輯交易、調整設定、查看月分析與分類圖表、設定餐期時段、匯入匯出資料。</p>
     </section>
 
     <section class="card">

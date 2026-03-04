@@ -50,9 +50,9 @@ function formatBalanceNumber(balance) {
 
 function buildLedgerBaseName(settings) {
   const type = String(settings?.type || 'personal');
-  if (type === 'shared') return '共同賬本';
+  if (type === 'shared') return '共同帳本';
   const title = String(settings?.user_title || '').trim();
-  return title ? `${title}的賬本` : '個人賬本';
+  return title ? `${title}的帳本` : '個人帳本';
 }
 
 async function updateChannelBalanceName(channel) {
