@@ -54,10 +54,11 @@ async function tickDailyReminderJobs(client) {
   const currentTime = nowTimeKey(now);
 
   const rows = all(`
-    SELECT channel_id, reminder_time
+    SELECT channel_id, reminder_time, reminder_enabled
     FROM channel_settings
     WHERE reminder_time IS NOT NULL
       AND TRIM(reminder_time) <> ''
+      AND COALESCE(reminder_enabled, 1) = 1
       AND setup_completed_at IS NOT NULL
   `);
 

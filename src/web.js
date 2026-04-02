@@ -2,11 +2,24 @@ const express = require('express');
 const path = require('path');
 const Database = require('better-sqlite3');
 const { initDatabase } = require('./db/database');
+const {
+  listBackups,
+  createBackup,
+  restoreBackupByFilename,
+  getBackupConfig,
+} = require('./services/db-backup');
+const { stringifyCategoryRules } = require('./utils/category-rules');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+function normalizeBackupLimit(value, fallback = 30) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(1, Math.min(200, Math.floor(raw)));
+}
 
 function csvEscape(value) {
   const text = String(value ?? '');
@@ -167,6 +180,55 @@ function parseMealPeriodsInput(value) {
   return out;
 }
 
+function parseCategoryRulesInput(value) {
+  if (value === null || value === undefined || value === '') return '[]';
+  const raw = typeof value === 'string' ? value : JSON.stringify(value);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (_) {
+    throw new Error('分類記憶格式錯誤，需為 JSON 陣列');
+  }
+  if (!Array.isArray(parsed)) throw new Error('分類記憶需為陣列');
+  const rules = parsed
+    .map((row) => ({
+      keyword: String(row?.keyword || '').trim(),
+      category: String(row?.category || '').trim(),
+    }))
+    .filter((r) => r.keyword && r.category);
+  if (rules.some((r) => r.keyword.length > 40)) throw new Error('分類記憶：關鍵字不可超過 40 字');
+  return stringifyCategoryRules(rules);
+}
+
+function parseMonthlyBudgetsInput(value) {
+  if (value === null || value === undefined || value === '') return {};
+  const raw = typeof value === 'string' ? value : JSON.stringify(value);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error('月份預算格式錯誤，需為 JSON 物件');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('月份預算格式錯誤，需為 {"YYYY-MM": 金額}');
+  }
+  const out = {};
+  Object.entries(parsed).forEach(([key, amount]) => {
+    const monthKey = String(key || '').trim();
+    if (!monthKey) return;
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey)) {
+      throw new Error(`月份預算鍵格式錯誤：${monthKey}（需為 YYYY-MM）`);
+    }
+    if (amount === null || amount === undefined || amount === '') return;
+    const numeric = Number(amount);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      throw new Error(`月份預算「${monthKey}」必須為 0 或正數`);
+    }
+    out[monthKey] = Math.round(numeric);
+  });
+  return out;
+}
+
 function withReadonlyDb(handler) {
   return (req, res) => {
     const dbPath = process.env.DB_PATH || './data/accounting.db';
@@ -252,6 +314,47 @@ app.get('/api/channel/:channelId', withReadonlyDb((req, res, db) => {
   }
 }));
 
+// API: 資料庫備份清單
+app.get('/api/backups', (req, res) => {
+  try {
+    const limit = normalizeBackupLimit(req.query.limit, 30);
+    const backups = listBackups({ limit });
+    res.json({
+      backups,
+      config: getBackupConfig(),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: 立即建立一份備份
+app.post('/api/backups/create', (req, res) => {
+  try {
+    const reasonRaw = String(req.body?.reason || 'manual');
+    const reason = reasonRaw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'manual';
+    const backup = createBackup({ reason: reason.toLowerCase() });
+    res.json({ success: true, backup });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: 從指定備份回檔（全庫）
+app.post('/api/backups/restore', (req, res) => {
+  try {
+    const filename = String(req.body?.filename || '').trim();
+    if (!filename) {
+      res.status(400).json({ error: '缺少 filename' });
+      return;
+    }
+    const result = restoreBackupByFilename(filename, { createSafetyBackup: true });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // API: 取得餘額
 app.get('/api/user/:userId/balance', withReadonlyDb((req, res, db) => {
   const { userId } = req.params;
@@ -277,9 +380,9 @@ app.get('/api/user/:userId/balance', withReadonlyDb((req, res, db) => {
 app.get('/api/channel/:channelId/settings', withReadonlyDb((req, res, db) => {
   const { channelId } = req.params;
   const row = db.prepare(`
-    SELECT channel_id, name, budget, reminder_time, split_books, user_gender, user_title, categories_text,
+    SELECT channel_id, name, budget, reminder_time, reminder_enabled, split_books, user_gender, user_title, categories_text,
            currency, show_balance_in_name, vehicle_sync_enabled, recurring_items_text,
-           chat_style_tags_text, category_budgets_text, meal_periods_text, type
+           chat_style_tags_text, category_budgets_text, meal_periods_text, monthly_budgets_text, category_rules_text, type
     FROM channel_settings
     WHERE channel_id = ?
   `).get(channelId);
@@ -290,6 +393,7 @@ app.get('/api/channel/:channelId/settings', withReadonlyDb((req, res, db) => {
     ledgerType: String(row?.type || 'personal'),
     budget: Number(row?.budget || 0),
     reminderTime: row?.reminder_time || '',
+    reminderEnabled: Number(row?.reminder_enabled ?? 1) === 1,
     splitBooks: Number(row?.split_books ?? 0) === 1,
     gender: row?.user_gender || '',
     title: row?.user_title || '',
@@ -301,6 +405,8 @@ app.get('/api/channel/:channelId/settings', withReadonlyDb((req, res, db) => {
     chatStyleTagsText: row?.chat_style_tags_text || '',
     categoryBudgetsText: row?.category_budgets_text || '',
     mealPeriodsText: row?.meal_periods_text || '',
+    monthlyBudgetsText: row?.monthly_budgets_text || '',
+    categoryRulesText: row?.category_rules_text || '[]',
   });
 }));
 
@@ -310,6 +416,7 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
   const {
     budget = 0,
     reminderTime = '',
+    reminderEnabled = true,
     splitBooks = false,
     gender = '',
     title = '',
@@ -322,6 +429,8 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
     chatStyleTagsText = '',
     categoryBudgetsText = '',
     mealPeriodsText = '',
+    monthlyBudgetsText = '',
+    categoryRulesText = '[]',
   } = req.body || {};
 
   if (!Number.isFinite(Number(budget)) || Number(budget) < 0) {
@@ -342,9 +451,13 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
   }
   let parsedCategoryBudgets;
   let parsedMealPeriods;
+  let parsedMonthlyBudgets;
+  let serializedCategoryRules;
   try {
     parsedCategoryBudgets = parseCategoryBudgetsInput(categoryBudgetsText);
     parsedMealPeriods = parseMealPeriodsInput(mealPeriodsText);
+    parsedMonthlyBudgets = parseMonthlyBudgetsInput(monthlyBudgetsText);
+    serializedCategoryRules = parseCategoryRulesInput(categoryRulesText);
   } catch (error) {
     res.status(400).json({ error: error.message });
     return;
@@ -357,13 +470,14 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
 
   db.prepare(`
     INSERT INTO channel_settings (
-      channel_id, budget, reminder_time, split_books, user_gender, user_title, categories_text,
+      channel_id, budget, reminder_time, reminder_enabled, split_books, user_gender, user_title, categories_text,
       currency, ledgers_text, show_balance_in_name, vehicle_sync_enabled, recurring_items_text,
-      chat_style_tags_text, category_budgets_text, meal_periods_text, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      chat_style_tags_text, category_budgets_text, meal_periods_text, monthly_budgets_text, category_rules_text, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(channel_id) DO UPDATE SET
       budget = excluded.budget,
       reminder_time = excluded.reminder_time,
+      reminder_enabled = excluded.reminder_enabled,
       split_books = excluded.split_books,
       user_gender = excluded.user_gender,
       user_title = excluded.user_title,
@@ -376,11 +490,14 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
       chat_style_tags_text = excluded.chat_style_tags_text,
       category_budgets_text = excluded.category_budgets_text,
       meal_periods_text = excluded.meal_periods_text,
+      monthly_budgets_text = excluded.monthly_budgets_text,
+      category_rules_text = excluded.category_rules_text,
       updated_at = excluded.updated_at
   `).run(
     channelId,
     Number(budget) || 0,
     String(reminderTime || '').trim(),
+    reminderEnabled ? 1 : 0,
     splitBooks ? 1 : 0,
     String(gender || ''),
     String(title || ''),
@@ -393,6 +510,8 @@ app.put('/api/channel/:channelId/settings', withWritableDb((req, res, db) => {
     String(chatStyleTagsText || ''),
     JSON.stringify(parsedCategoryBudgets),
     JSON.stringify(parsedMealPeriods),
+    JSON.stringify(parsedMonthlyBudgets),
+    serializedCategoryRules,
     new Date().toISOString()
   );
 
@@ -634,15 +753,16 @@ app.post('/api/channel/:channelId/import', withWritableDb((req, res, db) => {
   if (parsedSettings && typeof parsedSettings === 'object') {
     db.prepare(`
       INSERT INTO channel_settings (
-        channel_id, name, budget, type, setup_state, setup_user_id, reminder_time, split_books,
+        channel_id, name, budget, type, setup_state, setup_user_id, reminder_time, reminder_enabled, split_books,
         setup_completed_at, user_gender, user_title, categories_text, currency, ledgers_text,
-        show_balance_in_name, vehicle_sync_enabled, recurring_items_text, chat_style_tags_text, category_budgets_text, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        show_balance_in_name, vehicle_sync_enabled, recurring_items_text, chat_style_tags_text, category_budgets_text, monthly_budgets_text, category_rules_text, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(channel_id) DO UPDATE SET
         name = excluded.name,
         budget = excluded.budget,
         type = excluded.type,
         reminder_time = excluded.reminder_time,
+        reminder_enabled = excluded.reminder_enabled,
         split_books = excluded.split_books,
         user_gender = excluded.user_gender,
         user_title = excluded.user_title,
@@ -654,6 +774,8 @@ app.post('/api/channel/:channelId/import', withWritableDb((req, res, db) => {
         recurring_items_text = excluded.recurring_items_text,
         chat_style_tags_text = excluded.chat_style_tags_text,
         category_budgets_text = excluded.category_budgets_text,
+        monthly_budgets_text = excluded.monthly_budgets_text,
+        category_rules_text = excluded.category_rules_text,
         updated_at = excluded.updated_at
     `).run(
       channelId,
@@ -663,6 +785,7 @@ app.post('/api/channel/:channelId/import', withWritableDb((req, res, db) => {
       parsedSettings.setup_state || null,
       parsedSettings.setup_user_id || null,
       parsedSettings.reminder_time || '',
+      Number(parsedSettings.reminder_enabled ?? 1) ? 1 : 0,
       Number(parsedSettings.split_books) ? 1 : 0,
       parsedSettings.setup_completed_at || null,
       parsedSettings.user_gender || '',
@@ -675,6 +798,8 @@ app.post('/api/channel/:channelId/import', withWritableDb((req, res, db) => {
       parsedSettings.recurring_items_text || '',
       parsedSettings.chat_style_tags_text || '',
       typeof parsedSettings.category_budgets_text === 'string' ? parsedSettings.category_budgets_text : '',
+      typeof parsedSettings.monthly_budgets_text === 'string' ? parsedSettings.monthly_budgets_text : '',
+      typeof parsedSettings.category_rules_text === 'string' ? parsedSettings.category_rules_text : '',
       new Date().toISOString()
     );
   }

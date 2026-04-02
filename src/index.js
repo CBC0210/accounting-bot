@@ -9,6 +9,7 @@ const { startDailyReminderScheduler } = require('./services/reminder');
 const { startChannelBalanceSyncScheduler } = require('./services/channel-balance-sync');
 const { startMonthlySettlementScheduler } = require('./services/monthly-settlement');
 const { startDataChangeNotifierScheduler } = require('./services/data-change-notifier');
+const { startDatabaseBackupScheduler } = require('./services/db-backup');
 
 const client = new Client({
   intents: [
@@ -61,6 +62,7 @@ async function startBot() {
     await initDatabase();
     startRecurringScheduler();
     startMonthlySettlementScheduler();
+    startDatabaseBackupScheduler();
     console.log('資料庫就緒');
     await client.login(process.env.DISCORD_TOKEN);
     startDailyReminderScheduler(client);

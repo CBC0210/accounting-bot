@@ -16,6 +16,7 @@ const {
 const { generateResponse } = require('../llm/generator');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { updateChannelBalanceName } = require('./channel');
+const { restoreLatestStep } = require('../services/undo-step');
 
 async function handleSlashCommand(interaction) {
   const { commandName, options, channel, user } = interaction;
@@ -53,6 +54,11 @@ async function handleSlashCommand(interaction) {
     case '幫助':
     case 'help':
       await handleHelp(interaction);
+      break;
+
+    case '還原':
+    case 'undo':
+      await handleUndo(interaction, options);
       break;
       
     case '初始化':
@@ -99,7 +105,7 @@ async function handleExpense(interaction, options) {
   
   const balance = getChannelNetBalance(interaction.channelId);
   const settings = getChannelSettings(interaction.channelId);
-  const budget = Number(settings?.budget || 0);
+  const budget = getEffectiveMonthlyBudget(settings);
   const monthlySpent = getChannelMonthlyExpense(interaction.channelId);
   const styleTags = parseStyleTags(settings?.chat_style_tags_text);
   // 頻道改名走背景，不阻塞 slash 指令回覆
@@ -136,7 +142,7 @@ async function handleIncome(interaction, options) {
   
   const balance = getChannelNetBalance(interaction.channelId);
   const settings = getChannelSettings(interaction.channelId);
-  const budget = Number(settings?.budget || 0);
+  const budget = getEffectiveMonthlyBudget(settings);
   const monthlySpent = getChannelMonthlyExpense(interaction.channelId);
   const styleTags = parseStyleTags(settings?.chat_style_tags_text);
   // 頻道改名走背景，不阻塞 slash 指令回覆
@@ -190,7 +196,7 @@ async function handleBudget(interaction, options) {
   const amount = options.getNumber('金額') || options.getNumber('amount');
   if (amount === null || amount === undefined) {
     const settings = getChannelSettings(interaction.channelId);
-    const budget = Number(settings?.budget || 0);
+    const budget = getEffectiveMonthlyBudget(settings);
     const spent = getChannelMonthlyExpense(interaction.channelId);
     if (!budget || budget <= 0) {
       await interaction.reply({
@@ -229,6 +235,40 @@ async function handleBudget(interaction, options) {
   });
 }
 
+function parseMonthlyBudgets(text) {
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(String(text || '{}'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out = {};
+    Object.entries(parsed).forEach(([k, v]) => {
+      const key = String(k || '').trim();
+      const amount = Number(v);
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(key)) return;
+      if (!Number.isFinite(amount) || amount < 0) return;
+      out[key] = Math.round(amount);
+    });
+    return out;
+  } catch (_) {
+    return {};
+  }
+}
+
+function toMonthKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getEffectiveMonthlyBudget(settings, date = new Date()) {
+  const globalBudget = Number(settings?.budget || 0);
+  const monthly = parseMonthlyBudgets(settings?.monthly_budgets_text);
+  const key = toMonthKey(date);
+  if (Object.prototype.hasOwnProperty.call(monthly, key)) {
+    return Number(monthly[key] || 0);
+  }
+  return globalBudget;
+}
+
 async function handleDashboard(interaction) {
   const dashboardBaseUrl = process.env.DASHBOARD_BASE_URL || 'http://localhost:3000';
   const dashboardUrl = `${dashboardBaseUrl.replace(/\/$/, '')}/${interaction.channelId}`;
@@ -239,6 +279,29 @@ async function handleDashboard(interaction) {
     .setTimestamp();
 
   await interaction.reply({ embeds: [embed], ephemeral: false });
+}
+
+async function handleUndo(interaction, options) {
+  if (!ensureChannelReady(interaction)) return;
+  const steps = Math.max(1, Math.min(5, Number(options.getInteger('步數') || 1)));
+  const lines = [];
+  let successCount = 0;
+  for (let i = 0; i < steps; i += 1) {
+    const result = restoreLatestStep(interaction.channelId);
+    if (!result.ok) {
+      if (i === 0) {
+        await interaction.reply({ content: `⚠️ ${result.message}`, ephemeral: true });
+        return;
+      }
+      break;
+    }
+    successCount += 1;
+    lines.push(`- ${result.message}`);
+  }
+  await interaction.reply({
+    content: `↩️ 已還原 ${successCount} 步：\n${lines.join('\n')}`,
+    ephemeral: false,
+  });
 }
 
 async function handleHelp(interaction) {

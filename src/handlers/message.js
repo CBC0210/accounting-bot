@@ -7,7 +7,9 @@ const {
   setChannelSetupState,
   setChannelBudget,
   setChannelReminderTime,
+  setChannelReminderEnabled,
   setChannelCategoryBudgets,
+  setChannelCategoryRules,
   setChannelGender,
   setChannelTitle,
   completeChannelSetup,
@@ -30,9 +32,20 @@ const {
   planDataQueryWithLLM,
   planTransactionActionWithLLM,
 } = require('../llm/generator');
+const { transcribeAudioAttachment } = require('../services/voice-transcription');
+const { restoreLatestStep } = require('../services/undo-step');
+const { listBackups, restoreBackupByFilename, createBackup, getBackupConfig } = require('../services/db-backup');
 const { sendEmbed } = require('../utils/embed');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { updateChannelBalanceName } = require('./channel');
+const {
+  parseCategoryRulesText,
+  stringifyCategoryRules,
+  matchUserCategoryRule,
+  upsertCategoryRule,
+  parseCategoryRuleTeachIntent,
+  resolveCategoryAgainstAllowed,
+} = require('../utils/category-rules');
 
 const DEFAULT_ALLOWED_CATEGORIES = [
   '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '日常生活', '醫療', '教育', '投資', '禮物', '其他',
@@ -43,6 +56,7 @@ const DEFAULT_INCOME_CATEGORY_SET = new Set(['薪資', '兼職', '被動收入',
 const channelMessageQueues = new Map();
 const pendingTransactionActions = new Map();
 const pendingMealPeriodActions = new Map();
+const pendingBackupRestoreActions = new Map();
 const recentQueryContexts = new Map();
 const recentDialogueCache = new Map();
 const dialogueWriteQueues = new Map();
@@ -53,11 +67,17 @@ let ensureDialogueDirPromise = null;
 async function handleMessage(message) {
   const channelId = message?.channel?.id;
   if (!channelId) return;
+  const text = String(message?.content || '').trim();
+  const audioAttachment = !text ? getFirstAudioAttachment(message) : null;
+  if (audioAttachment) {
+    void handleVoiceMessage(message, audioAttachment);
+    return;
+  }
 
   const previousTask = channelMessageQueues.get(channelId) || Promise.resolve();
   const nextTask = previousTask
     .catch(() => {})
-    .then(() => handleMessageCore(message));
+    .then(() => handleMessageCore(message, {}));
 
   channelMessageQueues.set(channelId, nextTask);
   try {
@@ -76,19 +96,145 @@ async function handleMessage(message) {
   }
 }
 
-async function handleMessageCore(message) {
+async function handleVoiceMessage(message, audioAttachment) {
+  const channelSettings = getChannelSettings(message?.channel?.id);
+  if (!isChannelReadyForMessage(channelSettings)) return;
+  patchOutgoingTrackers(message);
+  const stopTyping = startTypingIndicator(message.channel);
+  try {
+    const transcriptRaw = await transcribeAudioAttachment({
+      url: audioAttachment.url,
+      name: audioAttachment.name,
+    });
+    if (!transcriptRaw) {
+      await message.reply('⚠️ 語音辨識失敗，請改用文字或重新上傳語音。');
+      return;
+    }
+    const transcript = normalizeVoiceTranscriptLight(String(transcriptRaw || '').trim());
+    console.log('[VOICE TRANSCRIPT]', JSON.stringify({
+      channelId: message.channel.id,
+      messageId: message.id,
+      raw: String(transcriptRaw || '').slice(0, 120),
+      normalized: transcript.slice(0, 120),
+    }));
+
+    const previousTask = channelMessageQueues.get(message.channel.id) || Promise.resolve();
+    const nextTask = previousTask
+      .catch(() => {})
+      .then(() => handleMessageCore(message, {
+        forcedContent: transcript,
+        skipVoiceTranscribe: true,
+      }));
+    channelMessageQueues.set(message.channel.id, nextTask);
+    try {
+      await nextTask;
+    } catch (error) {
+      console.error('voice queue task failed:', error);
+      await message.reply('⚠️ 語音訊息處理失敗，請再試一次。');
+    } finally {
+      if (channelMessageQueues.get(message.channel.id) === nextTask) {
+        channelMessageQueues.delete(message.channel.id);
+      }
+    }
+  } catch (error) {
+    console.error('voice transcription failed:', error);
+    const raw = String(error?.message || '未知錯誤');
+    const firstLine = raw.split(/\r?\n/)[0].trim();
+    if (firstLine.includes('voice_transcription_failed')) {
+      await message.reply('⚠️ 語音辨識失敗：雲端轉寫失敗，已記錄錯誤日誌。請稍後重試或改用文字。');
+      return;
+    }
+    await message.reply(`⚠️ 語音辨識失敗：${firstLine || '未知錯誤'}`);
+  } finally {
+    stopTyping();
+  }
+}
+
+function normalizeVoiceTranscriptLight(text) {
+  let value = String(text || '').trim();
+  if (!value) return '';
+  const replacements = [
+    [/工車|公車車|供車|宮車/gi, '公車'],
+    [/買當勞|賣當勞|麥當樓|賣當樓/gi, '麥當勞'],
+    [/收搖飲|手要飲|手謠飲|手遙飲/gi, '手搖飲'],
+    [/再稅五分鐘|在稅五分鐘|在睡五分鐘/gi, '再睡五分鐘'],
+  ];
+  for (const [pattern, target] of replacements) {
+    value = value.replace(pattern, target);
+  }
+  value = value
+    .replace(/[，,。；;：:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // 只做輕量口語去除，盡量保留品牌與關鍵詞
+  value = value
+    .replace(/^(?:我|我在|我剛|我剛剛|今天|剛剛|就是|然後|想說|幫我|請|我去)\s*/i, '')
+    .replace(/\s*(?:花了|花費了|消費了)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return value;
+}
+
+async function handleMessageCore(message, options = {}) {
   console.log(`收到訊息: ${message.content} from ${message.author.username}`);
 
   let stopTyping = () => {};
   try {
-    const content = message.content.trim();
-    const inferredOccurredAtIso = inferTransactionOccurredAt(content, message.createdAt || new Date());
+    let content = typeof options.forcedContent === 'string'
+      ? String(options.forcedContent || '').trim()
+      : String(message.content || '').trim();
+    const skipVoiceTranscribe = Boolean(options.skipVoiceTranscribe);
     const channelSettings = getChannelSettings(message.channel.id);
     if (!isChannelReadyForMessage(channelSettings)) {
       // 未初始化頻道保持靜默，不主動回覆任何訊息
       return;
     }
     patchOutgoingTrackers(message);
+    const undoIntent = parseUndoIntent(content);
+    if (undoIntent) {
+      const maxSteps = Math.max(1, Math.min(5, Number(undoIntent.steps || 1)));
+      const lines = [];
+      let success = 0;
+      for (let i = 0; i < maxSteps; i += 1) {
+        const result = restoreLatestStep(message.channel.id);
+        if (!result.ok) {
+          if (i === 0) {
+            await message.reply(`⚠️ ${result.message}`);
+            return;
+          }
+          break;
+        }
+        success += 1;
+        lines.push(`- ${result.message}`);
+      }
+      await message.reply(`↩️ 已還原 ${success} 步：\n${lines.join('\n')}`);
+      return;
+    }
+
+    const backupHandled = await handleBackupDialogIntent(message, content);
+    if (backupHandled) return;
+    if (!content && !skipVoiceTranscribe) {
+      const audioAttachment = getFirstAudioAttachment(message);
+      if (audioAttachment) {
+        const transcript = await transcribeAudioAttachment({
+          url: audioAttachment.url,
+          name: audioAttachment.name,
+        });
+        if (transcript) {
+          content = transcript;
+          console.log('[VOICE TRANSCRIPT]', JSON.stringify({
+            channelId: message.channel.id,
+            messageId: message.id,
+            text: transcript.slice(0, 180),
+          }));
+        } else {
+          await message.reply('⚠️ 語音辨識失敗，請改用文字或重新上傳語音。');
+          return;
+        }
+      }
+    }
+    if (!content) return;
+    const inferredOccurredAtIso = inferTransactionOccurredAt(content, message.createdAt || new Date());
     void appendDialogueTurn(message.channel.id, {
       role: 'user',
       content,
@@ -98,6 +244,7 @@ async function handleMessageCore(message) {
     });
     stopTyping = startTypingIndicator(message.channel);
     const allowedCategories = parseConfiguredCategories(channelSettings?.categories_text);
+    const userCategoryRules = parseCategoryRulesText(channelSettings?.category_rules_text);
     const styleTags = parseStyleTags(channelSettings?.chat_style_tags_text);
     const setupState = channelSettings?.setup_state || null;
     const setupUserId = channelSettings?.setup_user_id || null;
@@ -107,6 +254,17 @@ async function handleMessageCore(message) {
     if (categoryBudgetIntent) {
       const handled = await handleCategoryBudgetIntent(message, categoryBudgetIntent, channelSettings, allowedCategories);
       if (handled) return;
+    }
+    const reminderToggleIntent = !isSetupMode ? parseReminderToggleIntent(content) : null;
+    if (reminderToggleIntent) {
+      const handled = await handleReminderToggleIntent(message, reminderToggleIntent, channelSettings);
+      if (handled) return;
+    }
+
+    const categoryRuleTeachQuick = !isSetupMode ? parseCategoryRuleTeachIntent(content) : null;
+    if (categoryRuleTeachQuick) {
+      await handleCategoryRuleTeach(message, categoryRuleTeachQuick, allowedCategories);
+      return;
     }
 
     const mealSettingHandled = !isSetupMode
@@ -154,10 +312,12 @@ async function handleMessageCore(message) {
       if (managed) return;
     }
 
+    const routingHistory = await fetchRecentDialogueForLLM(message, 10);
     const llmDecision = await decideActionWithLLM(content, {
       isSetupMode,
       setupState,
       allowedCategories,
+      history: routingHistory,
     });
 
     const llmUnavailable = !llmDecision;
@@ -191,6 +351,19 @@ async function handleMessageCore(message) {
       return;
     }
 
+    if (llmDecision?.action === 'set_category_rule') {
+      const kw = llmDecision.ruleKeyword || llmDecision.note;
+      const cat = llmDecision.ruleCategory || llmDecision.category;
+      if (kw && cat) {
+        await handleCategoryRuleTeach(message, { keyword: kw, category: cat }, allowedCategories);
+      } else if (llmDecision.needsClarification && llmDecision.followUpQuestion) {
+        await message.reply(llmDecision.followUpQuestion);
+      } else {
+        await message.reply('⚠️ 請說明要記住的關鍵字與分類，例如：以後「星巴克」視為「餐飲」類別。');
+      }
+      return;
+    }
+
     // 初始化完成後，允許透過自然語句修改常用設定（以 embed 回覆）
     if (llmDecision?.action && ['set_budget', 'set_reminder_time', 'set_gender', 'set_title'].includes(llmDecision.action)) {
       const handled = await handleSettingUpdateByConversation(message, llmDecision, content);
@@ -198,7 +371,7 @@ async function handleMessageCore(message) {
     }
 
     if (llmDecision?.action === 'record_transaction') {
-      const transactions = resolveRecordTransactions(llmDecision, content, allowedCategories, inferredOccurredAtIso);
+      const transactions = resolveRecordTransactions(llmDecision, content, allowedCategories, inferredOccurredAtIso, userCategoryRules);
       if (transactions.length > 1) {
         await processTransactionsBatch(message, transactions, styleTags);
         return;
@@ -224,7 +397,8 @@ async function handleMessageCore(message) {
           },
           allowedCategories,
           content,
-          inferredOccurredAtIso
+          inferredOccurredAtIso,
+          userCategoryRules
         );
         if (merged) {
           await processTransaction(message, merged, styleTags);
@@ -513,7 +687,7 @@ async function processTransaction(message, transaction, styleTags = [], options 
   // 取得餘額
   const balance = getChannelNetBalance(message.channel.id);
   const settings = getChannelSettings(message.channel.id);
-  const budget = Number(settings?.budget || 0);
+  const budget = getEffectiveMonthlyBudget(settings);
   const monthlySpent = getChannelMonthlyExpense(message.channel.id);
   const dashboardBaseUrl = process.env.DASHBOARD_BASE_URL || 'http://localhost:3000';
   const dashboardUrl = `${dashboardBaseUrl.replace(/\/$/, '')}/${message.channel.id}`;
@@ -566,7 +740,7 @@ async function processTransactionsBatch(message, transactions, styleTags = []) {
 
   const balance = getChannelNetBalance(message.channel.id);
   const settings = getChannelSettings(message.channel.id);
-  const budget = Number(settings?.budget || 0);
+  const budget = getEffectiveMonthlyBudget(settings);
   const monthlySpent = getChannelMonthlyExpense(message.channel.id);
   const dashboardBaseUrl = process.env.DASHBOARD_BASE_URL || 'http://localhost:3000';
   const dashboardUrl = `${dashboardBaseUrl.replace(/\/$/, '')}/${message.channel.id}`;
@@ -1105,48 +1279,85 @@ async function handleSetupConversation(message, setupState, llmDecision, content
   }
 }
 
-function normalizeDecisionToTransaction(decision, allowedCategories = [], content = '', fallbackTimestampIso = null) {
+function normalizeDecisionToTransaction(decision, allowedCategories = [], content = '', fallbackTimestampIso = null, userCategoryRules = []) {
   if (!decision || typeof decision.amount !== 'number') return null;
-  const type = decision.type === 'income' ? 'income' : 'expense';
+  const rawAmount = Number(decision.amount);
+  if (!Number.isFinite(rawAmount) || rawAmount === 0) return null;
+  const amount = Math.round(Math.abs(rawAmount));
+  const type = inferTransactionTypeFromContext({
+    explicitType: decision.type,
+    rawAmount,
+    note: decision.note,
+    category: decision.category,
+    content,
+  });
   const normalizedNote = stripLeadingDateTimePrefix(normalizeOptionalNote(decision.note));
+  const contentPrimaryNote = extractPrimaryNoteFromContent(content);
+  const finalNote = pickBetterNote(normalizedNote, contentPrimaryNote);
   const typedAllowedCategories = getAllowedCategoriesByType(allowedCategories, type);
   const normalizedCategory = normalizeTransactionCategory(
     decision.category,
     typedAllowedCategories,
-    `${normalizedNote || ''} ${content || ''}`
+    `${finalNote || normalizedNote || ''} ${content || ''}`,
+    userCategoryRules
   );
   const category = normalizedCategory || (type === 'income' ? '收入' : '未分類');
-  const itemName = normalizedNote || category;
+  const itemName = finalNote || normalizedNote || category;
   return {
-    amount: decision.amount,
+    amount,
     type,
     category,
-    note: normalizedNote,
+    note: finalNote || normalizedNote,
     itemName,
     timestamp: fallbackTimestampIso || new Date().toISOString(),
   };
 }
 
-function resolveRecordTransactions(decision, content = '', allowedCategories = [], fallbackTimestampIso = null) {
+function extractPrimaryNoteFromContent(content) {
+  let text = stripLeadingDateTimePrefix(String(content || '').trim());
+  if (!text) return '';
+  // 去掉尾端金額（例如：手搖飲 再睡五分鐘 75塊 -> 手搖飲 再睡五分鐘）
+  text = text
+    .replace(/[，,、。；;：:]\s*$/, '')
+    .replace(/\s*[+-]?\d+(?:\.\d+)?\s*(?:元|塊|塊錢|台幣|nt\$?|ntd)?\s*$/i, '')
+    .trim();
+  return text;
+}
+
+function pickBetterNote(primary, secondary) {
+  const a = String(primary || '').trim();
+  const b = String(secondary || '').trim();
+  if (!a && !b) return '';
+  if (!a) return b;
+  if (!b) return a;
+  // 若其中一個包含另一個，優先較完整版本，避免只剩「五分鐘」這種縮短
+  if (a.includes(b) && a.length >= b.length) return a;
+  if (b.includes(a) && b.length >= a.length) return b;
+  // 若 primary 很短且 secondary 明顯更完整，優先 secondary
+  if (a.length <= 4 && b.length >= a.length + 2) return b;
+  return a;
+}
+
+function resolveRecordTransactions(decision, content = '', allowedCategories = [], fallbackTimestampIso = null, userCategoryRules = []) {
   if (!decision) return [];
 
   // 支援 LLM 直接回傳多筆交易
   if (Array.isArray(decision.transactions) && decision.transactions.length) {
     const fromDecision = decision.transactions
-      .map((item) => normalizeDecisionToTransaction(item, allowedCategories, content, fallbackTimestampIso))
+      .map((item) => normalizeDecisionToTransaction(item, allowedCategories, content, fallbackTimestampIso, userCategoryRules))
       .filter(Boolean);
     if (fromDecision.length) return fromDecision;
   }
 
   // 文字中包含多個「項目+金額」時，拆成多筆（例：滷味 55 飲料50）
-  const fromText = parseMultipleTransactionsFromText(content, allowedCategories, decision, fallbackTimestampIso);
+  const fromText = parseMultipleTransactionsFromText(content, allowedCategories, decision, fallbackTimestampIso, userCategoryRules);
   if (fromText.length > 1) return fromText;
 
-  const single = normalizeDecisionToTransaction(decision, allowedCategories, content, fallbackTimestampIso);
+  const single = normalizeDecisionToTransaction(decision, allowedCategories, content, fallbackTimestampIso, userCategoryRules);
   return single ? [single] : [];
 }
 
-function parseMultipleTransactionsFromText(content, allowedCategories = [], decision = null, fallbackTimestampIso = null) {
+function parseMultipleTransactionsFromText(content, allowedCategories = [], decision = null, fallbackTimestampIso = null, userCategoryRules = []) {
   const text = String(content || '').trim();
   if (!text) return [];
 
@@ -1157,20 +1368,28 @@ function parseMultipleTransactionsFromText(content, allowedCategories = [], deci
     const rawNote = String(match[1] || '').trim().replace(/[，,、。；;：:]+$/g, '');
     const cleanedNote = stripLeadingDateTimePrefix(rawNote);
     const amount = Number(match[2]);
-    if (!(cleanedNote || rawNote) || !Number.isFinite(amount) || amount <= 0) continue;
-    matches.push({ rawNote: cleanedNote || rawNote, amount, rawAmountText: String(match[2]) });
+    if (!(cleanedNote || rawNote) || !Number.isFinite(amount) || amount === 0) continue;
+    matches.push({ rawNote: cleanedNote || rawNote, amount: Math.abs(amount), rawAmountText: String(match[2]) });
   }
   if (matches.length <= 1) return [];
 
-  const defaultType = decision?.type === 'income' ? 'income' : 'expense';
+  const defaultType = inferTransactionTypeFromContext({
+    explicitType: decision?.type,
+    rawAmount: Number(decision?.amount || 0),
+    note: decision?.note,
+    category: decision?.category,
+    content,
+  });
   return matches.map((item) => {
-    const inferredType = item.rawAmountText.startsWith('+')
-      ? 'income'
-      : item.rawAmountText.startsWith('-')
-        ? 'expense'
-        : defaultType;
+    const inferredType = inferTransactionTypeFromContext({
+      explicitType: defaultType,
+      rawAmount: item.rawAmountText.startsWith('-') ? -item.amount : item.amount,
+      note: item.rawNote,
+      category: null,
+      content: `${content} ${item.rawNote}`,
+    });
     const typedAllowedCategories = getAllowedCategoriesByType(allowedCategories, inferredType);
-    const category = normalizeTransactionCategory(item.rawNote, typedAllowedCategories, item.rawNote);
+    const category = normalizeTransactionCategory(item.rawNote, typedAllowedCategories, item.rawNote, userCategoryRules);
     return {
       amount: Math.round(item.amount),
       type: inferredType,
@@ -1180,6 +1399,25 @@ function parseMultipleTransactionsFromText(content, allowedCategories = [], deci
       timestamp: fallbackTimestampIso || new Date().toISOString(),
     };
   });
+}
+
+function inferTransactionTypeFromContext({ explicitType = null, rawAmount = 0, note = '', category = '', content = '' } = {}) {
+  if (rawAmount < 0) return 'expense';
+  if (rawAmount > 0 && rawAmount !== 0 && String(explicitType || '').trim() === 'income') return 'income';
+  if (rawAmount > 0 && rawAmount !== 0 && String(explicitType || '').trim() === 'expense') return 'expense';
+
+  const text = `${note || ''} ${category || ''} ${content || ''}`.toLowerCase();
+  const incomeHints = [
+    '收入', '入帳', '薪水', '薪資', '發薪', '獎金', '紅包', '退款', '回饋', '賺', '兼職', '被動收入', '生活費', '補助', '收款',
+    'income', 'salary', 'bonus', 'refund', 'cashback', 'deposit',
+  ];
+  const expenseHints = [
+    '支出', '花', '花了', '買', '付款', '付了', '繳', '扣款', '消費', '晚餐', '午餐', '早餐', '宵夜', '交通', '房租',
+    'expense', 'spent', 'pay', 'paid', 'buy', 'purchase',
+  ];
+  if (incomeHints.some((k) => text.includes(k))) return 'income';
+  if (expenseHints.some((k) => text.includes(k))) return 'expense';
+  return 'expense';
 }
 
 function getAllowedCategoriesByType(allowedCategories = [], type = 'expense') {
@@ -1259,10 +1497,13 @@ function stripLeadingDateTimePrefix(text) {
   return value || original;
 }
 
-function normalizeTransactionCategory(rawCategory, allowedCategories, contextText = '') {
+function normalizeTransactionCategory(rawCategory, allowedCategories, contextText = '', userCategoryRules = []) {
   const safeAllowed = Array.isArray(allowedCategories) && allowedCategories.length
     ? allowedCategories
     : [...DEFAULT_ALLOWED_CATEGORIES];
+
+  const ruleCategory = matchUserCategoryRule(contextText, userCategoryRules, safeAllowed);
+  if (ruleCategory) return ruleCategory;
 
   const normalizedRaw = normalizeTagText(rawCategory);
   if (normalizedRaw) {
@@ -1489,6 +1730,156 @@ function extractTitleFromDecision(decision) {
   return value;
 }
 
+function parseUndoIntent(content) {
+  const text = String(content || '').trim().toLowerCase();
+  if (!text) return null;
+  const isUndo = /(還原|復原|撤銷|回復|undo)/.test(text);
+  const hasStepHint = /(上一步|上一筆|最近|最後|剛剛|上個)/.test(text);
+  if (!isUndo || !hasStepHint) return null;
+  const stepMatch = text.match(/(\d+)\s*(步|次|筆)/);
+  const steps = stepMatch ? Number(stepMatch[1]) : 1;
+  return { steps };
+}
+
+function parseBackupIntent(content) {
+  const text = String(content || '').trim();
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+
+  const hasBackupKeyword = /(備份|backup)/i.test(text);
+  const hasRestoreKeyword = /(回檔|還原備份|恢復備份|還原資料庫|restore)/i.test(text);
+  const askList = /(列出|清單|有哪些|列表|查看)/.test(text);
+  const createNow = /(現在|立刻|馬上|立即|手動|做一份|建立一份|建立|產生)/.test(text);
+
+  if (hasBackupKeyword && !hasRestoreKeyword && (createNow || /備份一下|先備份/.test(text))) {
+    return { action: 'create' };
+  }
+  if (hasBackupKeyword && askList) {
+    return { action: 'list' };
+  }
+
+  if (hasRestoreKeyword) {
+    if (/(最新|上一份|最近|latest)/i.test(normalized)) {
+      return { action: 'restore', mode: 'latest' };
+    }
+    const matchIndex = text.match(/第\s*(\d+)\s*(份|個|筆)?/);
+    if (matchIndex) {
+      return { action: 'restore', mode: 'index', index: Number(matchIndex[1]) };
+    }
+    return { action: 'restore', mode: 'pick' };
+  }
+
+  const directPick = text.match(/^(?:回檔|還原)\s*(\d+)\s*$/);
+  if (directPick) {
+    return { action: 'restore', mode: 'index', index: Number(directPick[1]) };
+  }
+
+  return null;
+}
+
+function formatBackupListLines(backups, limit = 8) {
+  const top = (Array.isArray(backups) ? backups : []).slice(0, limit);
+  if (!top.length) return '目前沒有可用備份。';
+  return top.map((row, idx) => {
+    const when = formatIsoToTaipei(row.createdAt || row.updatedAt);
+    const sizeMb = Number(row.sizeBytes || 0) / (1024 * 1024);
+    return `${idx + 1}. ${row.filename}\n   時間：${when}｜大小：${sizeMb.toFixed(2)} MB`;
+  }).join('\n');
+}
+
+function formatIsoToTaipei(isoText) {
+  const d = new Date(isoText || Date.now());
+  if (Number.isNaN(d.getTime())) return String(isoText || '-');
+  return new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(d);
+}
+
+async function handleBackupDialogIntent(message, content) {
+  const key = `${message.channel.id}:${message.author.id}`;
+  const now = Date.now();
+  const pending = pendingBackupRestoreActions.get(key);
+  if (pending && now > Number(pending.expiresAt || 0)) {
+    pendingBackupRestoreActions.delete(key);
+  }
+
+  let intent = parseBackupIntent(content);
+  const activePending = pendingBackupRestoreActions.get(key) || null;
+
+  if (!intent && activePending) {
+    const pick = String(content || '').trim().match(/^(\d{1,2})$/);
+    if (!pick) return false;
+    intent = { action: 'restore', mode: 'index', index: Number(pick[1]) };
+  }
+  if (!intent) return false;
+
+  if (intent.action === 'create') {
+    const created = createBackup({ reason: 'discord_manual' });
+    const config = getBackupConfig();
+    await sendEmbed(message, {
+      title: '💾 備份完成',
+      fields: [
+        { name: '檔名', value: created.filename, inline: false },
+        { name: '時間', value: formatIsoToTaipei(created.createdAt), inline: true },
+        { name: '大小', value: `${(Number(created.sizeBytes || 0) / (1024 * 1024)).toFixed(2)} MB`, inline: true },
+        { name: '每日自動備份時間', value: String(config.dailyTime || '03:30'), inline: true },
+      ],
+    });
+    return true;
+  }
+
+  const backups = listBackups({ limit: 20 });
+  if (!backups.length) {
+    await message.reply('⚠️ 目前沒有可用備份，請先說「現在備份」建立第一份。');
+    return true;
+  }
+
+  if (intent.action === 'list' || intent.mode === 'pick') {
+    pendingBackupRestoreActions.set(key, { expiresAt: Date.now() + 10 * 60 * 1000 });
+    await sendEmbed(message, {
+      title: '🗂️ 可回檔備份清單',
+      fields: [
+        { name: '最近備份', value: formatBackupListLines(backups, 8), inline: false },
+        { name: '操作方式', value: '回覆 `回檔 第2份`、`回檔 最新`，或直接輸入數字 `2`', inline: false },
+      ],
+    });
+    return true;
+  }
+
+  let selected = null;
+  if (intent.mode === 'latest') {
+    selected = backups[0];
+  } else if (intent.mode === 'index') {
+    const index = Math.max(1, Math.min(backups.length, Number(intent.index || 1)));
+    selected = backups[index - 1];
+  }
+
+  if (!selected) {
+    await message.reply('⚠️ 找不到你指定的備份，請先說「列出備份」。');
+    return true;
+  }
+
+  const result = restoreBackupByFilename(selected.filename, { createSafetyBackup: true });
+  pendingBackupRestoreActions.delete(key);
+  await sendEmbed(message, {
+    title: '♻️ 回檔完成',
+    fields: [
+      { name: '已回檔版本', value: result.restored.filename, inline: false },
+      { name: '版本時間', value: formatIsoToTaipei(result.restored.createdAt), inline: true },
+      { name: '安全備份', value: result.safetyBackup?.filename || '無', inline: true },
+      { name: '提醒', value: '這是全資料庫回檔，建議 1-2 秒後再查詢資料。', inline: false },
+    ],
+  });
+  return true;
+}
+
 function normalizeGender(input) {
   const text = String(input || '').trim().toLowerCase();
   if (!text) return null;
@@ -1546,6 +1937,17 @@ function getFirstImageAttachment(message) {
     const isImageByType = contentType.startsWith('image/');
     const isImageByName = /\.(png|jpe?g|webp|gif)$/i.test(String(attachment.name || ''));
     if (isImageByType || isImageByName) return attachment;
+  }
+  return null;
+}
+
+function getFirstAudioAttachment(message) {
+  if (!message?.attachments || typeof message.attachments.values !== 'function') return null;
+  for (const attachment of message.attachments.values()) {
+    const contentType = String(attachment.contentType || '').toLowerCase();
+    const isAudioByType = contentType.startsWith('audio/');
+    const isAudioByName = /\.(ogg|oga|mp3|wav|m4a|webm|aac|flac)$/i.test(String(attachment.name || ''));
+    if (isAudioByType || isAudioByName) return attachment;
   }
   return null;
 }
@@ -2268,7 +2670,7 @@ function isChannelReadyForMessage(channelSettings) {
 
 async function sendMonthlyBudgetUsageMessage(message, context = {}) {
   const settings = getChannelSettings(message.channel.id);
-  const budget = Number(settings?.budget || 0);
+  const budget = getEffectiveMonthlyBudget(settings);
 
   if (!budget || budget <= 0) {
     const embed = new EmbedBuilder()
@@ -2342,6 +2744,42 @@ function parseCategoryBudgets(text) {
   }
 }
 
+function parseMonthlyBudgets(text) {
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(String(text || '{}'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out = {};
+    Object.entries(parsed).forEach(([k, v]) => {
+      const key = String(k || '').trim();
+      const amount = Number(v);
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(key)) return;
+      if (!Number.isFinite(amount) || amount < 0) return;
+      out[key] = Math.round(amount);
+    });
+    return out;
+  } catch (_) {
+    return {};
+  }
+}
+
+function toMonthKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+function getEffectiveMonthlyBudget(settings, date = new Date()) {
+  const globalBudget = Number(settings?.budget || 0);
+  const overrides = parseMonthlyBudgets(settings?.monthly_budgets_text);
+  const monthKey = toMonthKey(date);
+  if (Object.prototype.hasOwnProperty.call(overrides, monthKey)) {
+    return Number(overrides[monthKey] || 0);
+  }
+  return globalBudget;
+}
+
 function parseCategoryBudgetIntent(content) {
   const text = String(content || '').trim();
   if (!text) return null;
@@ -2364,6 +2802,19 @@ function parseCategoryBudgetIntent(content) {
   return null;
 }
 
+function parseReminderToggleIntent(content) {
+  const text = String(content || '').trim();
+  if (!text) return null;
+  if (!/提醒/.test(text)) return null;
+  if (/(關閉|關掉|停用|不要|取消|停止|先不要)/.test(text)) {
+    return { enabled: false };
+  }
+  if (/(開啟|打開|啟用|開始|恢復)/.test(text)) {
+    return { enabled: true };
+  }
+  return null;
+}
+
 async function handleCategoryBudgetIntent(message, intent, channelSettings, allowedCategories) {
   const categoryRaw = String(intent?.categoryRaw || '').trim();
   if (!categoryRaw) return false;
@@ -2381,7 +2832,7 @@ async function handleCategoryBudgetIntent(message, intent, channelSettings, allo
     return true;
   }
   const categoryBudgets = parseCategoryBudgets(channelSettings?.category_budgets_text);
-  const monthlyBudget = Number(channelSettings?.budget || 0);
+  const monthlyBudget = getEffectiveMonthlyBudget(channelSettings);
 
   if (intent.action === 'clear') {
     delete categoryBudgets[normalizedCategory];
@@ -2410,6 +2861,60 @@ async function handleCategoryBudgetIntent(message, intent, channelSettings, allo
     `✅ 已設定分類預算：${normalizedCategory} = NT$ ${Math.round(amount).toLocaleString()}\n` +
     `目前分類預算總和：NT$ ${total.toLocaleString()} / 月預算 NT$ ${monthlyBudget.toLocaleString()}`
   );
+  return true;
+}
+
+async function handleCategoryRuleTeach(message, { keyword, category }, allowedCategories) {
+  const kw = String(keyword || '').trim();
+  const rawCat = String(category || '').trim();
+  if (!kw || !rawCat) {
+    await message.reply('⚠️ 請同時提供關鍵字與分類，例如：以後「星巴克」視為「餐飲」。');
+    return;
+  }
+  if (kw.length > 40) {
+    await message.reply('⚠️ 關鍵字請勿超過 40 字。');
+    return;
+  }
+  const resolvedCat = resolveCategoryAgainstAllowed(rawCat, allowedCategories);
+  if (!resolvedCat) {
+    await sendEmbed(message, {
+      title: '⚠️ 無法設定分類記憶',
+      fields: [
+        { name: '原因', value: `找不到分類「${rawCat}」`, inline: false },
+        { name: '提示', value: '請使用你已設定的分類名稱（與 Dashboard 分類清單一致）。', inline: false },
+      ],
+    });
+    return;
+  }
+  const current = getChannelSettings(message.channel.id);
+  const existing = parseCategoryRulesText(current?.category_rules_text);
+  const { rules } = upsertCategoryRule(existing, kw, resolvedCat);
+  setChannelCategoryRules(message.channel.id, stringifyCategoryRules(rules));
+  await sendEmbed(message, {
+    title: '✅ 已記住分類偏好',
+    fields: [
+      { name: '關鍵字', value: kw, inline: true },
+      { name: '分類', value: resolvedCat, inline: true },
+      { name: '說明', value: '之後記帳內容若包含此關鍵字，會優先套用此分類（可覆蓋模型誤判）。', inline: false },
+    ],
+  });
+}
+
+async function handleReminderToggleIntent(message, intent, channelSettings) {
+  if (!intent || typeof intent.enabled !== 'boolean') return false;
+  const enabled = Boolean(intent.enabled);
+  if (enabled && !String(channelSettings?.reminder_time || '').trim()) {
+    await message.reply('⏰ 目前尚未設定提醒時間，請先設定例如：`提醒時間改成 21:30`。');
+    return true;
+  }
+  setChannelReminderEnabled(message.channel.id, enabled);
+  await sendEmbed(message, {
+    title: '⏰ 提醒設定已更新',
+    fields: [
+      { name: '每日提醒', value: enabled ? '開啟' : '關閉', inline: true },
+      { name: '提醒時間', value: String(channelSettings?.reminder_time || '未設定'), inline: true },
+    ],
+  });
   return true;
 }
 
@@ -3143,13 +3648,30 @@ async function sendTransactionActionSuccessEmbed(message, action, before, after)
     });
     return;
   }
+  const beforeAmount = Number(before?.amount || 0);
+  const afterAmount = Number(after?.amount || 0);
+  const beforeCategory = String(before?.category || '未分類');
+  const afterCategory = String(after?.category || '未分類');
+  const beforeNote = String(before?.note || '-');
+  const afterNote = String(after?.note || '-');
+
+  const changedFields = [];
+  if (beforeAmount !== afterAmount) {
+    changedFields.push({ name: '金額', value: `${beforeAmount} -> ${afterAmount}`, inline: true });
+  }
+  if (beforeCategory !== afterCategory) {
+    changedFields.push({ name: '分類', value: `${beforeCategory} -> ${afterCategory}`, inline: true });
+  }
+  if (beforeNote !== afterNote) {
+    changedFields.push({ name: '備註', value: `${beforeNote} -> ${afterNote}`, inline: false });
+  }
+
   await sendEmbed(message, {
     title: '✏️ 修改成功',
     fields: [
       { name: 'ID', value: String(after?.id || before?.id || ''), inline: true },
-      { name: '金額', value: `${before?.amount} -> ${after?.amount}`, inline: true },
-      { name: '分類', value: `${before?.category || '未分類'} -> ${after?.category || '未分類'}`, inline: true },
-      { name: '備註', value: `${before?.note || '-'} -> ${after?.note || '-'}`, inline: false },
+      ...changedFields,
+      ...(changedFields.length ? [] : [{ name: '說明', value: '本次沒有實際變更。', inline: false }]),
       { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false },
     ],
   });
@@ -3354,7 +3876,49 @@ async function fetchRecentDialogueForLLM(message, limit = 10) {
         content: String(item.content || ''),
       }))
       .filter((item) => item.content);
-    return rows;
+    if (rows.length > 0) return rows;
+
+    // 只有本地無已保存對話時，才回退即時抓取 Discord 頻道訊息
+    const liveRows = await fetchRecentDialogueFromChannel(message, limit);
+    if (!liveRows.length) return [];
+    for (const item of liveRows) {
+      void appendDialogueTurn(message.channel.id, {
+        role: item.role,
+        content: item.content,
+        speakerId: item.speakerId,
+        messageId: item.messageId,
+        timestamp: item.timestamp,
+      });
+    }
+    return liveRows.map((item) => ({ role: item.role, content: item.content }));
+  } catch (_) {
+    return [];
+  }
+}
+
+async function fetchRecentDialogueFromChannel(message, limit = 10) {
+  try {
+    if (!message?.channel || typeof message.channel.messages?.fetch !== 'function') return [];
+    const fetched = await message.channel.messages.fetch({ limit: Math.max(10, limit + 6) });
+    return Array.from(fetched.values())
+      .filter((msg) => msg.id !== message.id)
+      .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+      .map((msg) => {
+        const plain = String(msg.content || '').trim();
+        const embedTitle = String(msg.embeds?.[0]?.title || '').trim();
+        const embedDesc = String(msg.embeds?.[0]?.description || '').trim();
+        const text = normalizeDialogueContent(plain || [embedTitle, embedDesc].filter(Boolean).join(' - '));
+        if (!text) return null;
+        return {
+          role: msg.author?.bot ? 'assistant' : 'user',
+          content: text,
+          speakerId: msg.author?.id || null,
+          messageId: msg.id,
+          timestamp: msg.createdAt ? new Date(msg.createdAt).toISOString() : new Date(msg.createdTimestamp || Date.now()).toISOString(),
+        };
+      })
+      .filter(Boolean)
+      .slice(-Math.max(1, limit));
   } catch (_) {
     return [];
   }

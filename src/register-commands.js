@@ -128,6 +128,24 @@ const commands = [
     description_localizations: { 'en-US': 'Show available features and usage tips' },
   },
   {
+    name: '還原',
+    name_localizations: { 'en-US': 'undo' },
+    description: '還原最近一步外部資料變更',
+    description_localizations: { 'en-US': 'Undo the latest external data change' },
+    options: [
+      {
+        name: '步數',
+        name_localizations: { 'en-US': 'steps' },
+        description: '要還原幾步（1-5，預設 1）',
+        description_localizations: { 'en-US': 'How many steps to undo (1-5, default 1)' },
+        type: 4, // INTEGER
+        required: false,
+        min_value: 1,
+        max_value: 5,
+      },
+    ],
+  },
+  {
     name: '初始化',
     name_localizations: { 'en-US': 'init' },
     description: '將目前頻道設定為記帳頻道',

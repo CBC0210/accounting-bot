@@ -731,8 +731,19 @@
   
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const channelId = window.location.pathname.replace('/', '');
-    document.getElementById('channelId').textContent = channelId;
+    function resolveChannelIdFromUrl() {
+      const params = new URLSearchParams(window.location.search || '');
+      const fromQuery = String(params.get('channelId') || '').trim();
+      if (/^\d{8,}$/.test(fromQuery)) return fromQuery;
+
+      const path = String(window.location.pathname || '').replace(/^\/+|\/+$/g, '');
+      if (/^\d{8,}$/.test(path)) return path;
+
+      return '';
+    }
+
+    const channelId = resolveChannelIdFromUrl();
+    document.getElementById('channelId').textContent = channelId || '無效的 channelId';
 
     const defaultCategoryTags = [
       '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '日常生活', '醫療', '教育', '投資', '禮物', '其他',
@@ -746,6 +757,9 @@
       dinner: { start: '16:00', end: '21:59' },
       late_night: { start: '22:00', end: '04:59' },
     };
+    const supportedCurrencies = [
+      'TWD', 'USD', 'JPY', 'EUR', 'GBP', 'CNY', 'HKD', 'SGD', 'KRW', 'AUD', 'CAD', 'CHF', 'NZD', 'THB', 'MYR', 'IDR', 'VND'
+    ];
     let settingsPanelOpen = false;
     let expenseCategoryTags = [];
     let incomeCategoryTags = [];
@@ -759,6 +773,11 @@
     let editingTransactionId = null;
     let categoryBudgets = {};
     let mealPeriods = { ...defaultMealPeriods };
+    let accountCurrency = 'TWD';
+    let monthlyBudgets = {};
+    let categoryRulesPretty = '[]';
+    let backupEntries = [];
+    let backupConfig = null;
 
     function escapeHtml(str) {
       return String(str ?? '')
@@ -888,6 +907,37 @@
       return JSON.stringify(out);
     }
 
+    function parseMonthlyBudgetsText(text) {
+      if (!text) return {};
+      try {
+        const parsed = JSON.parse(String(text || '{}'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+        const out = {};
+        Object.entries(parsed).forEach(([k, v]) => {
+          const key = String(k || '').trim();
+          const amount = Number(v);
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(key)) return;
+          if (!Number.isFinite(amount) || amount < 0) return;
+          out[key] = Math.round(amount);
+        });
+        return out;
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function serializeMonthlyBudgets(mapObj) {
+      const out = {};
+      Object.entries(mapObj || {}).forEach(([k, v]) => {
+        const key = String(k || '').trim();
+        const amount = Number(v);
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(key)) return;
+        if (!Number.isFinite(amount) || amount < 0) return;
+        out[key] = Math.round(amount);
+      });
+      return JSON.stringify(out);
+    }
+
     function categoryBudgetColors(index) {
       const palette = ['#22c55e', '#06b6d4', '#a78bfa', '#f59e0b', '#ef4444', '#10b981', '#3b82f6'];
       return palette[index % palette.length];
@@ -962,6 +1012,40 @@
       });
     }
 
+    function setBackupStatus(message, isError = false) {
+      const el = document.getElementById('backupStatus');
+      if (!el) return;
+      el.textContent = String(message || '').trim();
+      el.classList.toggle('show', Boolean(el.textContent));
+      el.classList.toggle('error', Boolean(isError));
+      el.classList.toggle('success', !isError && Boolean(el.textContent));
+    }
+
+    function formatBackupWhen(isoText) {
+      const d = new Date(isoText || Date.now());
+      if (Number.isNaN(d.getTime())) return String(isoText || '-');
+      return d.toLocaleString('zh-TW', {
+        timeZone: 'Asia/Taipei',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      });
+    }
+
+    function buildBackupOptionRows(list) {
+      const rows = Array.isArray(list) ? list : [];
+      if (!rows.length) return '<option value="">目前沒有備份</option>';
+      return rows.map((item) => {
+        const when = formatBackupWhen(item.createdAt || item.updatedAt);
+        const mb = (Number(item.sizeBytes || 0) / (1024 * 1024)).toFixed(2);
+        return `<option value="${escapeHtml(item.filename)}">${escapeHtml(item.filename)} ｜ ${escapeHtml(when)} ｜ ${mb} MB</option>`;
+      }).join('');
+    }
+
     let saveToastTimer = null;
     function showSaveToast(message, type = 'success') {
       const toast = document.getElementById('saveToast');
@@ -1026,19 +1110,28 @@
         .join('');
     }
 
-    function createEmptyRecurringRow() {
+    function normalizeRecurringCurrency(value, fallback = 'TWD') {
+      const text = String(value || '').trim().toUpperCase();
+      if (supportedCurrencies.includes(text)) return text;
+      return String(fallback || 'TWD').trim().toUpperCase() || 'TWD';
+    }
+
+    function createEmptyRecurringRow(defaultCurrency = accountCurrency || 'TWD') {
       return {
         name: '',
         amount: '',
         scheduleType: 'monthly',
-        day: '1',
+        month: '',
+        day: '',
         weekday: '一',
         time: '09:00',
         type: 'expense',
+        monthlyPolicy: 'clip_to_last_day',
+        currency: normalizeRecurringCurrency(defaultCurrency, 'TWD'),
       };
     }
 
-    function parseRecurringRowsText(text) {
+    function parseRecurringRowsText(text, defaultCurrency = 'TWD') {
       const lines = String(text || '')
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -1047,21 +1140,36 @@
       const rows = lines.map((line) => {
         const parts = line.split(/[,\uFF0C]/).map((v) => v.trim());
         if (parts.length < 4) return null;
+        const options = {};
+        parts.slice(4).forEach((token) => {
+          const idx = String(token || '').indexOf('=');
+          if (idx <= 0) return;
+          const key = String(token.slice(0, idx)).trim().toLowerCase();
+          const val = String(token.slice(idx + 1)).trim();
+          if (!key) return;
+          options[key] = val;
+        });
         const name = parts[0];
         const amount = String(Number(parts[1]) || '');
         const schedule = parts[2];
         const type = parts[3] === 'income' ? 'income' : 'expense';
         let scheduleType = 'monthly';
-        let day = '1';
+        let month = '';
+        let day = '';
         let weekday = '一';
         let time = '09:00';
+        const monthlyPolicyRaw = String(options.monthlypolicy || options.month_policy || 'clip_to_last_day').trim().toLowerCase();
+        const monthlyPolicy = ['clip_to_last_day', 'skip_month', 'rollover_next_month'].includes(monthlyPolicyRaw)
+          ? monthlyPolicyRaw
+          : 'clip_to_last_day';
+        const currency = normalizeRecurringCurrency(options.currency || options.ccy, defaultCurrency);
 
         let m = schedule.match(/^每月(\d{1,2})號?(?:\s+(\d{1,2}:\d{2}))?$/);
         if (m) {
           scheduleType = 'monthly';
           day = m[1];
           if (m[2]) time = m[2];
-          return { name, amount, scheduleType, day, weekday, time, type };
+          return { name, amount, scheduleType, day, weekday, time, type, monthlyPolicy, currency };
         }
 
         m = schedule.match(/^每週([一二三四五六日天])(?:\s+(\d{1,2}:\d{2}))?$/);
@@ -1069,28 +1177,42 @@
           scheduleType = 'weekly';
           weekday = m[1] === '天' ? '日' : m[1];
           if (m[2]) time = m[2];
-          return { name, amount, scheduleType, day, weekday, time, type };
+          return { name, amount, scheduleType, day, weekday, time, type, monthlyPolicy, currency };
         }
 
         m = schedule.match(/^每日(?:\s+(\d{1,2}:\d{2}))?$/);
         if (m) {
           scheduleType = 'daily';
           if (m[1]) time = m[1];
-          return { name, amount, scheduleType, day, weekday, time, type };
+          return { name, amount, scheduleType, month, day, weekday, time, type, monthlyPolicy, currency };
         }
 
-        return { name, amount, scheduleType, day, weekday, time, type };
+        m = schedule.match(/^每年(\d{1,2})(?:\/|月)(\d{1,2})日?(?:\s+(\d{1,2}:\d{2}))?$/);
+        if (m) {
+          scheduleType = 'yearly';
+          month = m[1];
+          day = m[2];
+          if (m[3]) time = m[3];
+          return { name, amount, scheduleType, month, day, weekday, time, type, monthlyPolicy, currency };
+        }
+
+        return { name, amount, scheduleType, month, day, weekday, time, type, monthlyPolicy, currency };
       }).filter(Boolean);
 
-      return rows.length ? rows : [createEmptyRecurringRow()];
+      return rows.length ? rows : [createEmptyRecurringRow(defaultCurrency)];
     }
 
-    function recurringRowsToText(rows) {
+    function recurringRowsToText(rows, baseCurrency = 'TWD') {
       return rows
         .map((row) => {
           const name = String(row.name || '').trim();
           const amount = Number(String(row.amount || '').trim());
           const time = String(row.time || '').trim();
+          const monthlyPolicyRaw = String(row.monthlyPolicy || 'clip_to_last_day').trim().toLowerCase();
+          const monthlyPolicy = ['clip_to_last_day', 'skip_month', 'rollover_next_month'].includes(monthlyPolicyRaw)
+            ? monthlyPolicyRaw
+            : 'clip_to_last_day';
+          const currency = normalizeRecurringCurrency(row.currency, baseCurrency);
           if (!name || !Number.isFinite(amount) || amount <= 0 || !isValidTime(time)) return null;
 
           let schedule = `每月${Number(row.day || 1)}號 ${time}`;
@@ -1098,14 +1220,135 @@
             schedule = `每週${row.weekday || '一'} ${time}`;
           } else if (row.scheduleType === 'daily') {
             schedule = `每日 ${time}`;
+          } else if (row.scheduleType === 'yearly') {
+            schedule = `每年${Number(row.month || 1)}/${Number(row.day || 1)} ${time}`;
           }
-          return `${name},${Math.round(amount)},${schedule},${row.type === 'income' ? 'income' : 'expense'}`;
+          const parts = [
+            name,
+            Math.round(amount),
+            schedule,
+            row.type === 'income' ? 'income' : 'expense',
+            `currency=${currency}`,
+          ];
+          if (row.scheduleType === 'monthly' || row.scheduleType === 'yearly') {
+            parts.push(`monthlyPolicy=${monthlyPolicy}`);
+          }
+          return parts.join(',');
         })
         .filter(Boolean)
         .join('\n');
     }
 
+    function toWeekdayIndex(weekdayText) {
+      const map = { 日: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
+      return map[String(weekdayText || '').trim()] ?? null;
+    }
+
+    function buildRangeSelectOptions(min, max, selectedValue, suffix = '') {
+      const selected = String(selectedValue ?? '').trim();
+      const options = [`<option value="">請選擇</option>`];
+      for (let i = min; i <= max; i += 1) {
+        const value = String(i);
+        options.push(`<option value="${value}" ${selected === value ? 'selected' : ''}>${value}${suffix}</option>`);
+      }
+      return options.join('');
+    }
+
+    function applyMonthlyDay(year, monthIndex, day, monthlyPolicy) {
+      const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+      const targetDay = Number(day);
+      if (!Number.isInteger(targetDay) || targetDay < 1 || targetDay > 31) return null;
+      if (targetDay <= lastDay) return { year, monthIndex, day: targetDay };
+      if (monthlyPolicy === 'skip_month') return null;
+      if (monthlyPolicy === 'rollover_next_month') {
+        const next = new Date(year, monthIndex + 1, 1);
+        return { year: next.getFullYear(), monthIndex: next.getMonth(), day: 1 };
+      }
+      return { year, monthIndex, day: lastDay };
+    }
+
+    function estimateNextRecurringRun(row, now = new Date()) {
+      const scheduleType = ['monthly', 'weekly', 'daily', 'yearly'].includes(String(row?.scheduleType || ''))
+        ? String(row.scheduleType)
+        : 'monthly';
+      const time = String(row?.time || '').trim();
+      if (!isValidTime(time)) return null;
+      const [hour, minute] = time.split(':').map((v) => Number(v));
+
+      if (scheduleType === 'daily') {
+        const candidate = new Date(now);
+        candidate.setHours(hour, minute, 0, 0);
+        if (candidate <= now) candidate.setDate(candidate.getDate() + 1);
+        return candidate;
+      }
+
+      if (scheduleType === 'weekly') {
+        const targetWeekday = toWeekdayIndex(row?.weekday);
+        if (targetWeekday === null) return null;
+        const candidate = new Date(now);
+        candidate.setHours(hour, minute, 0, 0);
+        let delta = targetWeekday - candidate.getDay();
+        if (delta < 0 || (delta === 0 && candidate <= now)) delta += 7;
+        candidate.setDate(candidate.getDate() + delta);
+        return candidate;
+      }
+
+      if (scheduleType === 'yearly') {
+        const monthlyPolicy = String(row?.monthlyPolicy || 'clip_to_last_day');
+        const targetMonth = Number(String(row?.month || '').trim());
+        const targetDay = Number(String(row?.day || '').trim());
+        if (!Number.isInteger(targetMonth) || targetMonth < 1 || targetMonth > 12) return null;
+        if (!Number.isInteger(targetDay) || targetDay < 1 || targetDay > 31) return null;
+        const buildYearly = (year) => {
+          const applied = applyMonthlyDay(year, targetMonth - 1, targetDay, monthlyPolicy);
+          if (!applied) return null;
+          return new Date(applied.year, applied.monthIndex, applied.day, hour, minute, 0, 0);
+        };
+        const thisYear = buildYearly(now.getFullYear());
+        if (thisYear && thisYear > now) return thisYear;
+        return buildYearly(now.getFullYear() + 1);
+      }
+
+      const monthlyPolicy = String(row?.monthlyPolicy || 'clip_to_last_day');
+      const targetDay = Number(String(row?.day || '').trim());
+      if (!Number.isInteger(targetDay) || targetDay < 1 || targetDay > 31) return null;
+      let year = now.getFullYear();
+      let monthIndex = now.getMonth();
+      for (let i = 0; i < 18; i += 1) {
+        const applied = applyMonthlyDay(year, monthIndex, targetDay, monthlyPolicy);
+        if (applied) {
+          const candidate = new Date(applied.year, applied.monthIndex, applied.day, hour, minute, 0, 0);
+          if (candidate > now) return candidate;
+        }
+        const nextMonth = new Date(year, monthIndex + 1, 1);
+        year = nextMonth.getFullYear();
+        monthIndex = nextMonth.getMonth();
+      }
+      return null;
+    }
+
+    function formatNextRecurringRunText(row) {
+      const next = estimateNextRecurringRun(row, new Date());
+      if (!next) return '下次執行：設定尚未完整，無法計算';
+      const date = next.toLocaleDateString('zh-TW');
+      const hh = String(next.getHours()).padStart(2, '0');
+      const mm = String(next.getMinutes()).padStart(2, '0');
+      return `下次執行：${date} ${hh}:${mm}`;
+    }
+
+    function isRecurringRowBlank(row) {
+      const name = String(row?.name || '').trim();
+      const amountStr = String(row?.amount ?? '').trim();
+      const amount = Number(amountStr.replace(/[,\s]/g, ''));
+      const hasName = Boolean(name);
+      const hasAmount = Number.isFinite(amount) && amount > 0;
+      return !hasName && !hasAmount;
+    }
+
     function renderRecurringRows() {
+      if (!recurringRows.length) {
+        return '<div class="status-text show">目前沒有週期收支，可點「新增週期收支」加入。</div>';
+      }
       return recurringRows.map((row, idx) => `
         <div class="recurring-row">
           <input type="text" placeholder="名稱（例：房租）" value="${escapeHtml(row.name)}" onchange="updateRecurringRow(${idx}, 'name', this.value)" />
@@ -1114,6 +1357,7 @@
             <option value="monthly" ${row.scheduleType === 'monthly' ? 'selected' : ''}>每月</option>
             <option value="weekly" ${row.scheduleType === 'weekly' ? 'selected' : ''}>每週</option>
             <option value="daily" ${row.scheduleType === 'daily' ? 'selected' : ''}>每日</option>
+            <option value="yearly" ${row.scheduleType === 'yearly' ? 'selected' : ''}>每年</option>
           </select>
           <select onchange="updateRecurringRow(${idx}, 'type', this.value)">
             <option value="expense" ${row.type === 'expense' ? 'selected' : ''}>支出</option>
@@ -1122,13 +1366,50 @@
           <button class="btn btn-danger" onclick="removeRecurringRow(${idx})">刪除</button>
           <div class="row-inline">
             ${row.scheduleType === 'monthly'
-              ? `<input type="text" inputmode="numeric" placeholder="每月幾號" value="${escapeHtml(row.day)}" onchange="updateRecurringRow(${idx}, 'day', this.value)" />`
+              ? `<select onchange="updateRecurringRow(${idx}, 'day', this.value)">
+                  ${buildRangeSelectOptions(1, 31, row.day, '號')}
+                </select>`
+              : row.scheduleType === 'yearly'
+                ? `<div class="row-inline">
+                    <select onchange="updateRecurringRow(${idx}, 'month', this.value)">
+                      ${buildRangeSelectOptions(1, 12, row.month, '月')}
+                    </select>
+                    <select onchange="updateRecurringRow(${idx}, 'day', this.value)">
+                      ${buildRangeSelectOptions(1, 31, row.day, '日')}
+                    </select>
+                  </div>`
               : row.scheduleType === 'weekly'
                 ? `<select onchange="updateRecurringRow(${idx}, 'weekday', this.value)">
                     ${['一','二','三','四','五','六','日'].map((d) => `<option value="${d}" ${row.weekday === d ? 'selected' : ''}>週${d}</option>`).join('')}
                   </select>`
                 : `<div class="status-text">每日固定執行</div>`}
-            <input type="text" placeholder="時間 HH:mm" value="${escapeHtml(row.time)}" onchange="updateRecurringRow(${idx}, 'time', this.value)" />
+            <input type="time" value="${escapeHtml(row.time)}" onchange="updateRecurringRow(${idx}, 'time', this.value)" />
+          </div>
+          ${(row.scheduleType === 'monthly' || row.scheduleType === 'yearly')
+            ? `<div class="row-inline">
+                <select onchange="updateRecurringRow(${idx}, 'monthlyPolicy', this.value)">
+                  <option value="clip_to_last_day" ${row.monthlyPolicy === 'clip_to_last_day' ? 'selected' : ''}>無此日期時補齊月底</option>
+                  <option value="skip_month" ${row.monthlyPolicy === 'skip_month' ? 'selected' : ''}>無此日期時略過</option>
+                  <option value="rollover_next_month" ${row.monthlyPolicy === 'rollover_next_month' ? 'selected' : ''}>無此日期時延到下月 1 日</option>
+                </select>
+                <input list="currencyCodeList" type="text" placeholder="幣別（可搜尋）" value="${escapeHtml(row.currency || accountCurrency || 'TWD')}" onchange="updateRecurringRow(${idx}, 'currency', this.value.toUpperCase())" />
+              </div>`
+            : `<div class="row-inline">
+                <input list="currencyCodeList" type="text" placeholder="幣別（可搜尋）" value="${escapeHtml(row.currency || accountCurrency || 'TWD')}" onchange="updateRecurringRow(${idx}, 'currency', this.value.toUpperCase())" />
+                <div class="status-text show">此排程不套用月末策略</div>
+              </div>`
+          }
+          <div class="row-inline">
+            <div class="status-text show">匯率模式：自動每日匯率（依帳本主幣別換算）</div>
+            <div class="status-text show">幣別不同時會自動用當日匯率換算，無需手動填匯率。</div>
+          </div>
+          <div class="row-inline">
+            <div class="status-text show">說明：系統將使用當日匯率 API 自動換算。</div>
+            <div class="status-text show">目前帳本幣別：${escapeHtml(accountCurrency || 'TWD')}</div>
+          </div>
+          <div class="row-inline">
+            <div class="status-text show">${escapeHtml(formatNextRecurringRunText(row))}</div>
+            <div class="status-text show">排程類型：${row.scheduleType === 'monthly' ? '每月' : row.scheduleType === 'weekly' ? '每週' : row.scheduleType === 'yearly' ? '每年' : '每日'}</div>
           </div>
         </div>
       `).join('');
@@ -1136,20 +1417,26 @@
 
     async function loadData() {
       try {
+        if (!channelId) {
+          document.getElementById('app').innerHTML = '<div class="error">錯誤: URL 缺少有效的 channelId</div>';
+          return;
+        }
         if (!selectedMonth) selectedMonth = getDefaultMonthText();
         const monthParts = getMonthParts(selectedMonth) || getMonthParts(getDefaultMonthText());
-        const [channelRes, settingsRes, analyticsRes, monthTxRes, settlementRes] = await Promise.all([
+        const [channelRes, settingsRes, analyticsRes, monthTxRes, settlementRes, backupRes] = await Promise.all([
           fetch(`/api/channel/${channelId}`),
           fetch(`/api/channel/${channelId}/settings`),
           fetch(`/api/channel/${channelId}/analytics/month?year=${monthParts.year}&month=${monthParts.month}`),
           fetch(`/api/channel/${channelId}/transactions?year=${monthParts.year}&month=${monthParts.month}`),
           fetch(`/api/channel/${channelId}/settlements?limit=12`),
+          fetch('/api/backups?limit=30'),
         ]);
         const data = await channelRes.json();
         const settings = await settingsRes.json();
         const analytics = await analyticsRes.json();
         const monthTxPayload = await monthTxRes.json();
         const settlementPayload = await settlementRes.json();
+        const backupPayload = await backupRes.json();
         const monthTransactions = Array.isArray(monthTxPayload.transactions) ? monthTxPayload.transactions : [];
         const settlements = Array.isArray(settlementPayload.settlements) ? settlementPayload.settlements : [];
         const currentMonthSettlement = settlements.find(
@@ -1157,6 +1444,8 @@
         );
         const filteredSettlements = currentMonthSettlement ? [currentMonthSettlement] : [];
         currentMonthTransactions = monthTransactions;
+        backupEntries = Array.isArray(backupPayload?.backups) ? backupPayload.backups : [];
+        backupConfig = backupPayload?.config || null;
 
         if (data.error) {
           document.getElementById('app').innerHTML = `<div class="error">錯誤: ${escapeHtml(data.error)}</div>`;
@@ -1170,7 +1459,14 @@
         styleTags = parseTagsFromSettingsText(settings.chatStyleTagsText, defaultStyleTags);
         categoryBudgets = parseCategoryBudgetsText(settings.categoryBudgetsText);
         mealPeriods = parseMealPeriodsText(settings.mealPeriodsText || '');
-        recurringRows = parseRecurringRowsText(settings.recurringItemsText || '');
+        monthlyBudgets = parseMonthlyBudgetsText(settings.monthlyBudgetsText || '');
+        try {
+          categoryRulesPretty = JSON.stringify(JSON.parse(settings.categoryRulesText || '[]'), null, 2);
+        } catch (_) {
+          categoryRulesPretty = String(settings.categoryRulesText || '[]');
+        }
+        accountCurrency = String(settings.currency || 'TWD').trim().toUpperCase() || 'TWD';
+        recurringRows = parseRecurringRowsText(settings.recurringItemsText || '', accountCurrency);
         const ledgerName = getLedgerDisplayName(
           settings.ledgerType || data.ledgerType,
           settings.title,
@@ -1185,7 +1481,12 @@
         const monthIncome = Number(analytics?.totals?.income || 0);
         const monthExpense = Number(analytics?.totals?.expense || 0);
         const monthNet = Number(analytics?.totals?.net || 0);
-        const budgetValue = Number(settings?.budget || 0);
+        const globalBudgetValue = Number(settings?.budget || 0);
+        const monthKey = `${monthParts.year}-${String(monthParts.month).padStart(2, '0')}`;
+        const hasMonthBudgetOverride = Object.prototype.hasOwnProperty.call(monthlyBudgets, monthKey);
+        const budgetValue = hasMonthBudgetOverride
+          ? Number(monthlyBudgets[monthKey] || 0)
+          : globalBudgetValue;
         const budgetPercentRaw = budgetValue > 0 ? (monthExpense / budgetValue) * 100 : 0;
         const budgetPercent = Number.isFinite(budgetPercentRaw) ? Math.max(0, budgetPercentRaw) : 0;
         const budgetPercentDisplay = Math.round(budgetPercent * 10) / 10;
@@ -1271,7 +1572,7 @@
               </div>
               <div class="budget-progress-meta">
                 <span>已用 NT$ ${monthExpense.toLocaleString()}</span>
-                <span>預算 NT$ ${budgetValue.toLocaleString()}</span>
+                <span>預算 NT$ ${budgetValue.toLocaleString()}${hasMonthBudgetOverride ? '（本月覆寫）' : '（全域）'}</span>
                 <span>剩餘 NT$ ${budgetRemaining.toLocaleString()}</span>
                 <span>日均可用 NT$ ${Math.round(dailyBudgetAvailable).toLocaleString()}（剩餘 ${remainingDays} 天）</span>
               </div>
@@ -1351,8 +1652,25 @@
                   <input id="budgetInput" type="text" inputmode="numeric" placeholder="例如 42000" value="${Number(settings.budget || 0)}" />
                 </div>
                 <div class="form-field">
+                  <label>${monthLabel} 預算覆寫（留空=使用全域）</label>
+                  <input
+                    id="monthBudgetOverrideInput"
+                    type="text"
+                    inputmode="numeric"
+                    placeholder="留空表示使用全域預算"
+                    value="${hasMonthBudgetOverride ? Number(monthlyBudgets[monthKey] || 0) : ''}"
+                  />
+                </div>
+                <div class="form-field">
                   <label>每日提醒時間</label>
                   <input id="reminderTimeInput" type="text" placeholder="21:30" value="${escapeHtml(settings.reminderTime || '')}" />
+                </div>
+                <div class="form-field">
+                  <label>每日提醒開關</label>
+                  <select id="reminderEnabledInput">
+                    <option value="true" ${settings.reminderEnabled ? 'selected' : ''}>開啟</option>
+                    <option value="false" ${!settings.reminderEnabled ? 'selected' : ''}>關閉</option>
+                  </select>
                 </div>
                 <div class="form-field">
                   <label>性別</label>
@@ -1403,6 +1721,12 @@
                     <input id="incomeCategoryTagInput" type="text" placeholder="輸入收入分類，例如：獎金" />
                     <button class="btn" onclick="addIncomeCategoryTag()">新增收入分類</button>
                   </div>
+                </div>
+
+                <div class="form-field full">
+                  <label>分類記憶（關鍵字 → 分類，JSON 陣列）</label>
+                  <textarea id="categoryRulesTextInput" rows="6" style="width:100%;font-family:monospace;font-size:12px;">${escapeHtml(categoryRulesPretty)}</textarea>
+                  <div class="status-text">與 Discord「以後○○視為○○」同步。例：[{&quot;keyword&quot;:&quot;星巴克&quot;,&quot;category&quot;:&quot;餐飲&quot;}]</div>
                 </div>
 
                 <div class="form-field full">
@@ -1460,6 +1784,9 @@
 
                 <div class="form-field full">
                   <label>週期收支設定</label>
+                  <datalist id="currencyCodeList">
+                    ${supportedCurrencies.map((c) => `<option value="${c}">${c}</option>`).join('')}
+                  </datalist>
                   <div id="recurringRows" class="recurring-list">${renderRecurringRows()}</div>
                   <div class="actions-row">
                     <button class="btn" onclick="addRecurringRow()">新增週期收支</button>
@@ -1478,6 +1805,19 @@
                       <option value="replace">覆蓋本頻道交易</option>
                     </select>
                     <button class="btn" onclick="importData()">匯入檔案</button>
+                  </div>
+                  <div class="form-field" style="margin-top:10px;">
+                    <label>資料庫備份與回檔（全域）</label>
+                    <div class="actions-row">
+                      <button class="btn" onclick="createManualBackup()">立即備份</button>
+                      <button class="btn" onclick="refreshBackupList()">刷新清單</button>
+                    </div>
+                    <div class="actions-row">
+                      <select id="backupSelect">${buildBackupOptionRows(backupEntries)}</select>
+                      <button class="btn btn-danger" onclick="restoreBackupFromUI()">回檔</button>
+                    </div>
+                    <div class="status-text">每日自動備份時間：${escapeHtml(String(backupConfig?.dailyTime || '03:30'))}（Asia/Taipei）</div>
+                    <div id="backupStatus" class="status-text"></div>
                   </div>
                   <div id="settingsStatus" class="status-text"></div>
                 </div>
@@ -1557,20 +1897,95 @@
     }
 
     function addRecurringRow() {
+      const validation = validateRecurringRows(recurringRows, accountCurrency || 'TWD');
+      if (!validation.ok) {
+        setStatus(`週期收支第 ${validation.row} 列錯誤：${validation.message}`, true);
+        return;
+      }
       recurringRows = [...recurringRows, createEmptyRecurringRow()];
+      setStatus('');
       rerenderRecurringRows();
     }
 
     function removeRecurringRow(index) {
       recurringRows = recurringRows.filter((_, idx) => idx !== index);
-      if (!recurringRows.length) recurringRows = [createEmptyRecurringRow()];
       rerenderRecurringRows();
     }
 
     function updateRecurringRow(index, field, value) {
-      recurringRows = recurringRows.map((row, idx) => (
-        idx === index ? { ...row, [field]: String(value || '').trim() } : row
-      ));
+      recurringRows = recurringRows.map((row, idx) => {
+        if (idx !== index) return row;
+        const next = { ...row, [field]: String(value || '').trim() };
+        if (field === 'scheduleType') {
+          const scheduleType = ['monthly', 'weekly', 'daily', 'yearly'].includes(next.scheduleType) ? next.scheduleType : 'monthly';
+          next.scheduleType = scheduleType;
+          if (scheduleType === 'monthly') {
+            if (!next.day) next.day = '';
+            if (!next.monthlyPolicy) next.monthlyPolicy = 'clip_to_last_day';
+          } else if (scheduleType === 'yearly') {
+            if (!next.month) next.month = '';
+            if (!next.day) next.day = '';
+            if (!next.monthlyPolicy) next.monthlyPolicy = 'clip_to_last_day';
+          } else if (scheduleType === 'weekly') {
+            if (!next.weekday) next.weekday = '一';
+          }
+          if (!next.time) next.time = '09:00';
+        }
+        if (field === 'currency') {
+          next.currency = String(value || '').trim().toUpperCase();
+        }
+        return next;
+      });
+      setStatus('');
+      if (field === 'scheduleType') {
+        rerenderRecurringRows();
+      }
+      if (['month', 'day', 'weekday', 'time', 'monthlyPolicy'].includes(field)) {
+        rerenderRecurringRows();
+      }
+    }
+
+    function validateRecurringRows(rows, baseCurrency = 'TWD') {
+      const base = normalizeRecurringCurrency(baseCurrency, 'TWD');
+      for (let i = 0; i < (rows || []).length; i += 1) {
+        const row = rows[i] || {};
+        if (isRecurringRowBlank(row)) continue;
+        const rowNo = i + 1;
+        const name = String(row.name || '').trim();
+        if (!name) return { ok: false, row: rowNo, message: '名稱不可為空' };
+        const amount = Number(String(row.amount || '').trim());
+        if (!Number.isFinite(amount) || amount <= 0) return { ok: false, row: rowNo, message: '金額需為正數' };
+        const scheduleType = ['monthly', 'weekly', 'daily', 'yearly'].includes(String(row.scheduleType || '')) ? String(row.scheduleType) : 'monthly';
+        const time = String(row.time || '').trim();
+        if (!isValidTime(time)) return { ok: false, row: rowNo, message: '時間格式錯誤，請用時間選擇器' };
+        if (scheduleType === 'monthly') {
+          const day = Number(String(row.day || '').trim());
+          if (!Number.isInteger(day) || day < 1 || day > 31) {
+            return { ok: false, row: rowNo, message: '每月幾號需填 1-31' };
+          }
+        }
+        if (scheduleType === 'yearly') {
+          const month = Number(String(row.month || '').trim());
+          const day = Number(String(row.day || '').trim());
+          if (!Number.isInteger(month) || month < 1 || month > 12) {
+            return { ok: false, row: rowNo, message: '每年月份需填 1-12' };
+          }
+          if (!Number.isInteger(day) || day < 1 || day > 31) {
+            return { ok: false, row: rowNo, message: '每年日期需填 1-31' };
+          }
+        }
+        if (scheduleType === 'weekly') {
+          if (!['一', '二', '三', '四', '五', '六', '日'].includes(String(row.weekday || ''))) {
+            return { ok: false, row: rowNo, message: '每週星期需選擇正確值' };
+          }
+        }
+        const currency = String(row.currency || '').trim().toUpperCase();
+        if (!supportedCurrencies.includes(currency)) {
+          return { ok: false, row: rowNo, message: `幣別需從清單選擇（目前不支援 ${currency || '空值'}）` };
+        }
+        if (!base) return { ok: false, row: rowNo, message: '帳本主幣別設定錯誤' };
+      }
+      return { ok: true };
     }
 
     function updateCategoryBudgetValue(encodedTag, value) {
@@ -1641,74 +2056,180 @@
     }
 
     async function saveSettings() {
-      const budgetRaw = String(document.getElementById('budgetInput').value || '').trim();
-      const budgetValue = parseBudgetInput(budgetRaw);
-      if (budgetValue === null) {
-        setStatus('預算格式錯誤：請輸入 0 或正整數（例如 42000）', true);
+      if (!channelId) {
+        setStatus('儲存失敗：URL 缺少有效的 channelId', true);
+        showSaveToast('❌ 儲存失敗：URL 缺少有效的 channelId', 'error');
         return;
       }
-
-      const reminderTime = document.getElementById('reminderTimeInput').value.trim();
-      if (reminderTime && !isValidTime(reminderTime)) {
-        setStatus('提醒時間格式錯誤：請使用 HH:mm（例如 21:30）', true);
-        return;
-      }
-
-      const currencyValue = document.getElementById('currencyInput').value.trim() || 'TWD';
-      if (!/^[A-Za-z]{2,6}$/.test(currencyValue)) {
-        setStatus('貨幣格式錯誤：請輸入 2-6 位英文字母（例如 TWD）', true);
-        return;
-      }
-
-      const mealPeriodsResult = readMealPeriodsFromInputs();
-      if (mealPeriodsResult.error) {
-        setStatus(mealPeriodsResult.error, true);
-        return;
-      }
-
-      const payload = {
-        budget: budgetValue,
-        reminderTime,
-        gender: document.getElementById('genderInput').value,
-        title: document.getElementById('titleInput').value.trim(),
-        currency: currencyValue.toUpperCase(),
-        showBalanceInName: document.getElementById('showBalanceInNameInput').value === 'true',
-        vehicleSyncEnabled: document.getElementById('vehicleSyncInput').value === 'true',
-        categoriesText: dedupeTags(getAllCategoryTags()).join('\n'),
-        categoryBudgetsText: serializeCategoryBudgets(categoryBudgets),
-        mealPeriodsText: serializeMealPeriods(mealPeriodsResult.value),
-        chatStyleTagsText: dedupeTags(styleTags).join('\n'),
-        recurringItemsText: recurringRowsToText(recurringRows),
-      };
-      const categoryBudgetTotal = Object.values(categoryBudgets || {}).reduce((sum, v) => sum + Number(v || 0), 0);
-      if (categoryBudgetTotal > budgetValue) {
-        setStatus(`分類預算總和（${categoryBudgetTotal.toLocaleString()}）不可超過每月預算（${budgetValue.toLocaleString()}）`, true);
-        return;
-      }
-      setSaveButtonsLoading(true);
-      setStatus('⏳ 設定儲存中，請稍候…', false, 'pending');
       try {
-        const res = await fetch(`/api/channel/${channelId}/settings`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json();
-        if (!res.ok || data.error) throw new Error(data.error || '儲存失敗');
-        settingsPanelOpen = false;
-        await loadData();
-        setStatus('✅ 設定已儲存', false, 'success');
-        showSaveToast('✅ 設定已儲存', 'success');
+        const budgetRaw = String(document.getElementById('budgetInput')?.value || '').trim();
+        const budgetValue = parseBudgetInput(budgetRaw);
+        if (budgetValue === null) {
+          setStatus('預算格式錯誤：請輸入 0 或正整數（例如 42000）', true);
+          return;
+        }
+        const monthParts = getMonthParts(selectedMonth || getDefaultMonthText()) || getMonthParts(getDefaultMonthText());
+        const monthKey = `${monthParts.year}-${String(monthParts.month).padStart(2, '0')}`;
+        const monthBudgetRaw = String(document.getElementById('monthBudgetOverrideInput')?.value || '').trim();
+        const nextMonthlyBudgets = { ...(monthlyBudgets || {}) };
+        if (!monthBudgetRaw) {
+          delete nextMonthlyBudgets[monthKey];
+        } else {
+          const monthBudgetValue = parseBudgetInput(monthBudgetRaw);
+          if (monthBudgetValue === null) {
+            setStatus(`月份預算格式錯誤：${monthKey} 請輸入 0 或正整數`, true);
+            return;
+          }
+          nextMonthlyBudgets[monthKey] = monthBudgetValue;
+        }
+
+        const reminderTime = String(document.getElementById('reminderTimeInput')?.value || '').trim();
+        const reminderEnabledEl = document.getElementById('reminderEnabledInput');
+        const reminderEnabled = reminderEnabledEl ? reminderEnabledEl.value === 'true' : true;
+        if (reminderEnabled && reminderTime && !isValidTime(reminderTime)) {
+          setStatus('提醒時間格式錯誤：請使用 HH:mm（例如 21:30）', true);
+          return;
+        }
+
+        const currencyValue = String(document.getElementById('currencyInput')?.value || 'TWD').trim() || 'TWD';
+        if (!/^[A-Za-z]{2,6}$/.test(currencyValue)) {
+          setStatus('貨幣格式錯誤：請輸入 2-6 位英文字母（例如 TWD）', true);
+          return;
+        }
+
+        const mealPeriodsResult = readMealPeriodsFromInputs();
+        if (mealPeriodsResult.error) {
+          setStatus(mealPeriodsResult.error, true);
+          return;
+        }
+
+        let categoryRulesPayload = '[]';
+        try {
+          const rawRules = String(document.getElementById('categoryRulesTextInput')?.value || '').trim() || '[]';
+          const parsedRules = JSON.parse(rawRules);
+          if (!Array.isArray(parsedRules)) throw new Error('需為陣列');
+          categoryRulesPayload = JSON.stringify(parsedRules);
+        } catch (e) {
+          setStatus(`分類記憶 JSON 錯誤：${e.message}`, true);
+          return;
+        }
+
+        const payload = {
+          budget: budgetValue,
+          reminderTime,
+          reminderEnabled,
+          gender: String(document.getElementById('genderInput')?.value || ''),
+          title: String(document.getElementById('titleInput')?.value || '').trim(),
+          currency: currencyValue.toUpperCase(),
+          showBalanceInName: String(document.getElementById('showBalanceInNameInput')?.value || 'true') === 'true',
+          vehicleSyncEnabled: String(document.getElementById('vehicleSyncInput')?.value || 'false') === 'true',
+          categoriesText: dedupeTags(getAllCategoryTags()).join('\n'),
+          categoryBudgetsText: serializeCategoryBudgets(categoryBudgets),
+          mealPeriodsText: serializeMealPeriods(mealPeriodsResult.value),
+          monthlyBudgetsText: serializeMonthlyBudgets(nextMonthlyBudgets),
+          categoryRulesText: categoryRulesPayload,
+          chatStyleTagsText: dedupeTags(styleTags).join('\n'),
+          recurringItemsText: recurringRowsToText(recurringRows, currencyValue.toUpperCase()),
+        };
+        const recurringValidation = validateRecurringRows(recurringRows, currencyValue.toUpperCase());
+        if (!recurringValidation.ok) {
+          setStatus(`週期收支第 ${recurringValidation.row} 列錯誤：${recurringValidation.message}`, true);
+          return;
+        }
+        const categoryBudgetTotal = Object.values(categoryBudgets || {}).reduce((sum, v) => sum + Number(v || 0), 0);
+        if (categoryBudgetTotal > budgetValue) {
+          setStatus(`分類預算總和（${categoryBudgetTotal.toLocaleString()}）不可超過每月預算（${budgetValue.toLocaleString()}）`, true);
+          return;
+        }
+        setSaveButtonsLoading(true);
+        setStatus('⏳ 設定儲存中，請稍候…', false, 'pending');
+        try {
+          const res = await fetch(`/api/channel/${channelId}/settings`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) throw new Error(data.error || '儲存失敗');
+          settingsPanelOpen = false;
+          await loadData();
+          setStatus('✅ 設定已儲存', false, 'success');
+          showSaveToast('✅ 設定已儲存', 'success');
+        } catch (error) {
+          setStatus(`儲存失敗：${error.message}`, true);
+          showSaveToast(`❌ 儲存失敗：${error.message}`, 'error');
+        } finally {
+          setSaveButtonsLoading(false);
+        }
       } catch (error) {
-        setStatus(`儲存失敗：${error.message}`, true);
-        showSaveToast(`❌ 儲存失敗：${error.message}`, 'error');
-      } finally {
         setSaveButtonsLoading(false);
+        setStatus(`儲存失敗：${error?.message || error}`, true);
+        showSaveToast(`❌ 儲存失敗：${error?.message || error}`, 'error');
       }
     }
 
     function exportData(format) {
       window.location.href = `/api/channel/${channelId}/export?format=${encodeURIComponent(format)}`;
+    }
+
+    async function refreshBackupList() {
+      try {
+        setBackupStatus('備份清單更新中...');
+        const res = await fetch('/api/backups?limit=30');
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '讀取備份清單失敗');
+        backupEntries = Array.isArray(data.backups) ? data.backups : [];
+        backupConfig = data.config || backupConfig;
+        const select = document.getElementById('backupSelect');
+        if (select) select.innerHTML = buildBackupOptionRows(backupEntries);
+        setBackupStatus(`已更新，共 ${backupEntries.length} 份`);
+      } catch (error) {
+        setBackupStatus(`更新失敗：${error.message}`, true);
+      }
+    }
+
+    async function createManualBackup() {
+      try {
+        setBackupStatus('建立備份中...');
+        const res = await fetch('/api/backups/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'web_manual' }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '建立備份失敗');
+        await refreshBackupList();
+        setBackupStatus(`備份完成：${data.backup?.filename || ''}`);
+      } catch (error) {
+        setBackupStatus(`建立失敗：${error.message}`, true);
+      }
+    }
+
+    async function restoreBackupFromUI() {
+      const select = document.getElementById('backupSelect');
+      const filename = String(select?.value || '').trim();
+      if (!filename) {
+        setBackupStatus('請先選擇要回檔的備份', true);
+        return;
+      }
+      const ok = confirm(`確定回檔到：${filename}？\n這會還原整個資料庫。`);
+      if (!ok) return;
+      try {
+        setBackupStatus('回檔中...');
+        const res = await fetch('/api/backups/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '回檔失敗');
+        await refreshBackupList();
+        await loadData();
+        const restoredName = data?.restored?.filename || filename;
+        setBackupStatus(`回檔完成：${restoredName}`);
+      } catch (error) {
+        setBackupStatus(`回檔失敗：${error.message}`, true);
+      }
     }
 
     async function importData() {
@@ -1873,7 +2394,11 @@
         const groupStyle = mode === 'by_category'
           ? getCategoryBadgeStyle(groupKey)
           : 'background:#1b1b34;color:#dbeafe;border-color:#2a2a4a;';
-        html += `<li class="transaction group-header"><div class="t-info"><strong style="${groupStyle};padding:4px 8px;border-radius:999px;border:1px solid #2a2a4a;display:inline-block;">${escapeHtml(groupKey)}</strong></div><div class="t-time">${list.length} 筆</div></li>`;
+        const groupNet = list.reduce((sum, tx) => sum + (tx.type === 'income' ? Number(tx.amount || 0) : -Number(tx.amount || 0)), 0);
+        const headerRightText = mode === 'by_date'
+          ? `日結餘 ${groupNet >= 0 ? '+' : '-'}NT$ ${Math.abs(groupNet).toLocaleString()} · ${list.length} 筆`
+          : `分類結餘 ${groupNet >= 0 ? '+' : '-'}NT$ ${Math.abs(groupNet).toLocaleString()} · ${list.length} 筆`;
+        html += `<li class="transaction group-header"><div class="t-info"><strong style="${groupStyle};padding:4px 8px;border-radius:999px;border:1px solid #2a2a4a;display:inline-block;">${escapeHtml(groupKey)}</strong></div><div class="t-time">${escapeHtml(headerRightText)}</div></li>`;
         list.forEach((t) => {
           const amountPrefix = t.type === 'income' ? '+' : '-';
           const dateTime = formatDateTimeText(t.timestamp);
@@ -2051,6 +2576,9 @@
     window.updateRecurringRow = updateRecurringRow;
     window.importData = importData;
     window.exportData = exportData;
+    window.refreshBackupList = refreshBackupList;
+    window.createManualBackup = createManualBackup;
+    window.restoreBackupFromUI = restoreBackupFromUI;
     window.changeMonthPart = changeMonthPart;
     window.changeListMode = changeListMode;
     window.updateCategoryBudgetValue = updateCategoryBudgetValue;

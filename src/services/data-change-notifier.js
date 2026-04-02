@@ -1,5 +1,6 @@
 const { all, run, getLastLocalWriteMs } = require('../db/database');
 const { EmbedBuilder } = require('discord.js');
+const { recordUndoStepFromEvent } = require('./undo-step');
 
 const TICK_INTERVAL_MS = 15 * 1000;
 const LOCAL_WRITE_SUPPRESS_WINDOW_MS = 8000;
@@ -20,6 +21,18 @@ function buildEventLabel(row) {
   };
   const action = actionMap[row.action] || row.action;
   return `${entity}${action}`;
+}
+
+function parsePipeSummary(summary) {
+  const text = String(summary || '').trim();
+  if (!text.includes('|')) return null;
+  const out = {};
+  text.split('|').map((s) => s.trim()).filter(Boolean).forEach((part) => {
+    const idx = part.indexOf('=');
+    if (idx <= 0) return;
+    out[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+  });
+  return out;
 }
 
 function prettifySummary(summary) {
@@ -99,6 +112,8 @@ function prettifySettingsUpdateSummary(text) {
     const labelMap = {
       budget: '每月預算',
       reminder: '提醒時間',
+      reminderEnabled: '每日提醒開關',
+      monthlyBudgets: '月份預算覆寫',
       title: '稱呼',
     };
     const label = labelMap[key] || key;
@@ -118,6 +133,115 @@ function toTagSet(text) {
 
 function formatChangeLine(row) {
   return `• ${buildEventLabel(row)}\n  ${prettifySummary(row.summary)}`;
+}
+
+function makeAmountText(type, amount) {
+  const n = Number(amount || 0);
+  const sign = type === 'income' ? '+' : '-';
+  return `${sign}NT$ ${Math.abs(n).toLocaleString()}`;
+}
+
+function buildTransactionExternalEmbed(row, dashboardUrl) {
+  const map = parsePipeSummary(row.summary);
+  if (!map) return null;
+  const action = String(row.action || '');
+  const id = String(map.id || '-');
+  const type = String(map.type || (action === 'delete' ? 'expense' : 'expense'));
+  if (action === 'insert') {
+    return new EmbedBuilder()
+      .setColor(0xf59e0b)
+      .setTitle('🛠️ 外部新增記帳')
+      .setDescription('此筆資料由外部工具寫入。')
+      .addFields(
+        { name: 'ID', value: id, inline: true },
+        { name: '項目', value: String(map.note || map.category || '-'), inline: true },
+        { name: '金額', value: makeAmountText(type, map.amount), inline: true },
+        { name: '分類', value: String(map.category || '未分類'), inline: true },
+        { name: '時間', value: String(map.timestamp || '-'), inline: true },
+        { name: '來源', value: '外部資料變更', inline: true },
+        { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false }
+      )
+      .setTimestamp();
+  }
+  if (action === 'delete') {
+    return new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle('🛠️ 外部刪除記帳')
+      .setDescription('此筆資料由外部工具刪除。')
+      .addFields(
+        { name: 'ID', value: id, inline: true },
+        { name: '項目', value: String(map.note || map.category || '-'), inline: true },
+        { name: '金額', value: makeAmountText(type, map.amount), inline: true },
+        { name: '分類', value: String(map.category || '未分類'), inline: true },
+        { name: '時間', value: String(map.timestamp || '-'), inline: true },
+        { name: '來源', value: '外部資料變更', inline: true },
+        { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false }
+      )
+      .setTimestamp();
+  }
+  if (action === 'update') {
+    const changed = [];
+    if (String(map.amount_old || '') !== String(map.amount_new || '')) {
+      changed.push({ name: '金額', value: `${map.amount_old} -> ${map.amount_new}`, inline: true });
+    }
+    if (String(map.type_old || '') !== String(map.type_new || '')) {
+      changed.push({ name: '類型', value: `${map.type_old || '-'} -> ${map.type_new || '-'}`, inline: true });
+    }
+    if (String(map.category_old || '') !== String(map.category_new || '')) {
+      changed.push({ name: '分類', value: `${map.category_old || '-'} -> ${map.category_new || '-'}`, inline: true });
+    }
+    if (String(map.note_old || '') !== String(map.note_new || '')) {
+      changed.push({ name: '備註', value: `${map.note_old || '-'} -> ${map.note_new || '-'}`, inline: false });
+    }
+    if (!changed.length) {
+      changed.push({ name: '說明', value: '欄位值與先前相同（可能是外部重寫）。', inline: false });
+    }
+    return new EmbedBuilder()
+      .setColor(0xf59e0b)
+      .setTitle('🛠️ 外部修改記帳')
+      .setDescription('此筆資料由外部工具修改。')
+      .addFields(
+        { name: 'ID', value: id, inline: true },
+        ...changed,
+        { name: '來源', value: '外部資料變更', inline: true },
+        { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false }
+      )
+      .setTimestamp();
+  }
+  return null;
+}
+
+function buildSettingsExternalEmbed(row, dashboardUrl) {
+  const text = prettifySummary(row.summary);
+  return new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle('🛠️ 外部設定變更')
+    .setDescription('此頻道設定由外部工具更新。')
+    .addFields(
+      { name: '變更內容', value: text || '（無）', inline: false },
+      { name: '來源', value: '外部資料變更', inline: true },
+      { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false }
+    )
+    .setTimestamp();
+}
+
+function buildExternalEmbed(row, dashboardUrl) {
+  if (row.entity === 'transactions') {
+    const txEmbed = buildTransactionExternalEmbed(row, dashboardUrl);
+    if (txEmbed) return txEmbed;
+  }
+  if (row.entity === 'channel_settings') {
+    return buildSettingsExternalEmbed(row, dashboardUrl);
+  }
+  return new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle('🛠️ 外部資料變更通知')
+    .setDescription('偵測到外部資料異動。')
+    .addFields(
+      { name: '變更內容', value: formatChangeLine(row), inline: false },
+      { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false }
+    )
+    .setTimestamp();
 }
 
 async function tickDataChangeNotifier(client) {
@@ -159,24 +283,31 @@ async function tickDataChangeNotifier(client) {
         continue;
       }
 
-      const latest = events.slice(-6);
-      const lines = latest.map((row) => formatChangeLine(row));
-      const hiddenCount = Math.max(0, events.length - latest.length);
-      if (hiddenCount > 0) lines.push(`• 另外 ${hiddenCount} 筆變更`);
       const dashboardBaseUrl = process.env.DASHBOARD_BASE_URL || 'http://localhost:3000';
       const dashboardUrl = `${dashboardBaseUrl.replace(/\/$/, '')}/${channelId}`;
-
-      const embed = new EmbedBuilder()
-        .setColor(0xf59e0b)
-        .setTitle('🛠️ 外部資料變更通知')
-        .setDescription('偵測到外部資料異動，已同步顯示重點。')
-        .addFields(
-          { name: '變更內容', value: lines.join('\n'), inline: false },
-          { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false }
-        )
-        .setTimestamp();
-
-      await channel.send({ embeds: [embed] });
+      const latest = events.slice(-4);
+      const embeds = [];
+      latest.forEach((eventRow) => {
+        try {
+          recordUndoStepFromEvent(eventRow);
+        } catch (_) {
+          // 忽略還原步驟建立失敗，不影響通知
+        }
+        embeds.push(buildExternalEmbed(eventRow, dashboardUrl));
+      });
+      const hiddenCount = Math.max(0, events.length - latest.length);
+      if (hiddenCount > 0) {
+        embeds.push(
+          new EmbedBuilder()
+            .setColor(0x94a3b8)
+            .setTitle('🧾 外部變更彙總')
+            .setDescription(`另外還有 ${hiddenCount} 筆外部變更已記錄。`)
+            .setTimestamp()
+        );
+      }
+      for (const embed of embeds) {
+        await channel.send({ embeds: [embed] });
+      }
     } catch (error) {
       // 若送出失敗仍標記為已處理，避免無限重送
     } finally {

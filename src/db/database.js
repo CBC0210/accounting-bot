@@ -34,6 +34,9 @@ function migrateSchema() {
   if (!hasColumn('channel_settings', 'reminder_time')) {
     db.run(`ALTER TABLE channel_settings ADD COLUMN reminder_time TEXT`);
   }
+  if (!hasColumn('channel_settings', 'reminder_enabled')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN reminder_enabled INTEGER DEFAULT 1`);
+  }
   if (!hasColumn('channel_settings', 'split_books')) {
     db.run(`ALTER TABLE channel_settings ADD COLUMN split_books INTEGER DEFAULT 0`);
   }
@@ -72,6 +75,12 @@ function migrateSchema() {
   }
   if (!hasColumn('channel_settings', 'meal_periods_text')) {
     db.run(`ALTER TABLE channel_settings ADD COLUMN meal_periods_text TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'monthly_budgets_text')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN monthly_budgets_text TEXT`);
+  }
+  if (!hasColumn('channel_settings', 'category_rules_text')) {
+    db.run(`ALTER TABLE channel_settings ADD COLUMN category_rules_text TEXT`);
   }
 }
 
@@ -113,6 +122,7 @@ async function initDatabase() {
       setup_state TEXT,
       setup_user_id TEXT,
       reminder_time TEXT,
+      reminder_enabled INTEGER DEFAULT 1,
       split_books INTEGER DEFAULT 0,
       setup_completed_at TEXT,
       user_gender TEXT,
@@ -126,6 +136,7 @@ async function initDatabase() {
       chat_style_tags_text TEXT,
       category_budgets_text TEXT,
       meal_periods_text TEXT,
+      monthly_budgets_text TEXT,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
@@ -203,6 +214,21 @@ async function initDatabase() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS operation_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'external_event',
+      entity TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_id INTEGER,
+      undo_payload TEXT NOT NULL,
+      preview TEXT,
+      used INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   // 舊資料兼容：若 timestamp 只有日期（YYYY-MM-DD），補上預設時間 00:00:00
   db.run(`
     UPDATE transactions
@@ -229,10 +255,12 @@ async function initDatabase() {
         'transactions',
         'insert',
         'id=' || NEW.id
-          || ' 類型=' || COALESCE(NEW.type, '')
-          || ' 金額=' || COALESCE(NEW.amount, 0)
-          || ' 分類=' || COALESCE(NEW.category, '未分類')
-          || ' 備註=' || COALESCE(NEW.note, ''),
+          || ' | user=' || COALESCE(NEW.user_id, '')
+          || ' | type=' || COALESCE(NEW.type, '')
+          || ' | amount=' || COALESCE(NEW.amount, 0)
+          || ' | category=' || COALESCE(NEW.category, '未分類')
+          || ' | note=' || COALESCE(NEW.note, '')
+          || ' | timestamp=' || COALESCE(NEW.timestamp, ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
@@ -247,10 +275,18 @@ async function initDatabase() {
         'transactions',
         'update',
         'id=' || NEW.id
-          || ' 金額:' || COALESCE(OLD.amount, 0) || '->' || COALESCE(NEW.amount, 0)
-          || ' 類型:' || COALESCE(OLD.type, '') || '->' || COALESCE(NEW.type, '')
-          || ' 分類:' || COALESCE(OLD.category, '未分類') || '->' || COALESCE(NEW.category, '未分類')
-          || ' 備註:' || COALESCE(OLD.note, '') || '->' || COALESCE(NEW.note, ''),
+          || ' | user_old=' || COALESCE(OLD.user_id, '')
+          || ' | user_new=' || COALESCE(NEW.user_id, '')
+          || ' | type_old=' || COALESCE(OLD.type, '')
+          || ' | type_new=' || COALESCE(NEW.type, '')
+          || ' | amount_old=' || COALESCE(OLD.amount, 0)
+          || ' | amount_new=' || COALESCE(NEW.amount, 0)
+          || ' | category_old=' || COALESCE(OLD.category, '未分類')
+          || ' | category_new=' || COALESCE(NEW.category, '未分類')
+          || ' | note_old=' || COALESCE(OLD.note, '')
+          || ' | note_new=' || COALESCE(NEW.note, '')
+          || ' | timestamp_old=' || COALESCE(OLD.timestamp, '')
+          || ' | timestamp_new=' || COALESCE(NEW.timestamp, ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
@@ -265,10 +301,12 @@ async function initDatabase() {
         'transactions',
         'delete',
         'id=' || OLD.id
-          || ' 類型=' || COALESCE(OLD.type, '')
-          || ' 金額=' || COALESCE(OLD.amount, 0)
-          || ' 分類=' || COALESCE(OLD.category, '未分類')
-          || ' 備註=' || COALESCE(OLD.note, ''),
+          || ' | user=' || COALESCE(OLD.user_id, '')
+          || ' | type=' || COALESCE(OLD.type, '')
+          || ' | amount=' || COALESCE(OLD.amount, 0)
+          || ' | category=' || COALESCE(OLD.category, '未分類')
+          || ' | note=' || COALESCE(OLD.note, '')
+          || ' | timestamp=' || COALESCE(OLD.timestamp, ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
     END;
@@ -287,6 +325,7 @@ async function initDatabase() {
           || ' title=' || COALESCE(NEW.user_title, '')
           || ' budget=' || COALESCE(NEW.budget, 0)
           || ' reminder=' || COALESCE(NEW.reminder_time, '')
+          || ' reminderEnabled=' || COALESCE(NEW.reminder_enabled, 1)
           || ' categories=' || COALESCE(REPLACE(REPLACE(NEW.categories_text, char(13), ''), char(10), ','), ''),
         CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
       );
@@ -303,6 +342,8 @@ async function initDatabase() {
         'update',
         'budget:' || COALESCE(OLD.budget, 0) || '->' || COALESCE(NEW.budget, 0)
           || ' || reminder:' || COALESCE(OLD.reminder_time, '') || '->' || COALESCE(NEW.reminder_time, '')
+          || ' || reminderEnabled:' || COALESCE(OLD.reminder_enabled, 1) || '->' || COALESCE(NEW.reminder_enabled, 1)
+          || ' || monthlyBudgets:' || COALESCE(OLD.monthly_budgets_text, '') || '->' || COALESCE(NEW.monthly_budgets_text, '')
           || ' || title:' || COALESCE(OLD.user_title, '') || '->' || COALESCE(NEW.user_title, '')
           || ' || showBalance:' || COALESCE(OLD.show_balance_in_name, 1) || '->' || COALESCE(NEW.show_balance_in_name, 1)
           || ' || categories:' || COALESCE(REPLACE(REPLACE(OLD.categories_text, char(13), ''), char(10), ','), '')

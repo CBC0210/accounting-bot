@@ -104,9 +104,17 @@ function setChannelBudget(channelId, budget) {
 function setChannelReminderTime(channelId, reminderTime) {
   run(`
     UPDATE channel_settings
-    SET reminder_time = ?, updated_at = ?
+    SET reminder_time = ?, reminder_enabled = 1, updated_at = ?
     WHERE channel_id = ?
   `, [reminderTime, new Date().toISOString(), channelId]);
+}
+
+function setChannelReminderEnabled(channelId, enabled) {
+  run(`
+    UPDATE channel_settings
+    SET reminder_enabled = ?, updated_at = ?
+    WHERE channel_id = ?
+  `, [enabled ? 1 : 0, new Date().toISOString(), channelId]);
 }
 
 function setChannelCategoryBudgets(channelId, categoryBudgetsText) {
@@ -115,6 +123,14 @@ function setChannelCategoryBudgets(channelId, categoryBudgetsText) {
     SET category_budgets_text = ?, updated_at = ?
     WHERE channel_id = ?
   `, [String(categoryBudgetsText || ''), new Date().toISOString(), channelId]);
+}
+
+function setChannelCategoryRules(channelId, categoryRulesText) {
+  run(`
+    UPDATE channel_settings
+    SET category_rules_text = ?, updated_at = ?
+    WHERE channel_id = ?
+  `, [String(categoryRulesText || ''), new Date().toISOString(), channelId]);
 }
 
 function setChannelSplitBooks(channelId, splitBooks) {
@@ -511,7 +527,9 @@ module.exports = {
   setChannelSetupState,
   setChannelBudget,
   setChannelReminderTime,
+  setChannelReminderEnabled,
   setChannelCategoryBudgets,
+  setChannelCategoryRules,
   setChannelSplitBooks,
   setChannelGender,
   setChannelTitle,

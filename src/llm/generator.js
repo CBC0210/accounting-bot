@@ -168,6 +168,27 @@ async function callMiniMax(prompt, systemPrompt = '你是一個記帳機器人�
   }
 }
 
+function sanitizeShortReply(text) {
+  let value = String(text || '').trim();
+  if (!value) return '';
+  // 移除模型可能外露的 think 區塊（含大小寫與多行）
+  value = value
+    .replace(/<\s*think\s*>[\s\S]*?<\s*\/\s*think\s*>/gi, '')
+    .replace(/&lt;\s*think\s*&gt;[\s\S]*?&lt;\s*\/\s*think\s*&gt;/gi, '')
+    .trim();
+  // 移除模型偶爾附帶的字數註記，例如： （14字）
+  value = value.replace(/\s*[（(]\s*\d+\s*字\s*[）)]\s*$/u, '').trim();
+  // 移除整句外層引號
+  if (
+    (value.startsWith('「') && value.endsWith('」'))
+    || (value.startsWith('"') && value.endsWith('"'))
+    || (value.startsWith('“') && value.endsWith('”'))
+  ) {
+    value = value.slice(1, -1).trim();
+  }
+  return value;
+}
+
 async function generateResponse(transaction, balance, context = {}) {
   const budget = Number(context.budget || 0);
   const monthlySpent = Number(context.monthlySpent || 0);
@@ -209,7 +230,10 @@ async function generateResponse(transaction, balance, context = {}) {
 5) 若預算未設定，提醒可先設定預算（語氣輕鬆）。`;
 
   const response = await callMiniMax(prompt);
-  if (response) return response;
+  if (response) {
+    const cleaned = sanitizeShortReply(response);
+    if (cleaned) return cleaned;
+  }
 
   const responses = ['記好了', 'OK', '收到', '行'];
   return responses[Math.floor(Math.random() * responses.length)];
@@ -337,10 +361,21 @@ async function parseTransactionFromImageWithLLM(imageUrl, context = {}) {
 }
 
 async function decideActionWithLLM(content, context = {}) {
-  const { isSetupMode = false, setupState = null, allowedCategories = [] } = context;
+  const {
+    isSetupMode = false,
+    setupState = null,
+    allowedCategories = [],
+    history = [],
+  } = context;
   const categoryHint = Array.isArray(allowedCategories) && allowedCategories.length
     ? allowedCategories.join('、')
     : '（未設定）';
+  const historyText = Array.isArray(history) && history.length
+    ? history.slice(-10).map((item) => {
+      const role = item?.role === 'assistant' ? '機器人' : '使用者';
+      return `${role}：${String(item?.content || '').trim()}`;
+    }).join('\n')
+    : '（無）';
   const prompt = `請分析使用者訊息，判斷應採取的 action。
 
 可用 action:
@@ -348,6 +383,7 @@ async function decideActionWithLLM(content, context = {}) {
 - "set_reminder_time": 使用者是在回答每日提醒時間
 - "set_gender": 使用者是在回答性別設定
 - "set_title": 使用者是在回答稱呼設定
+- "set_category_rule": 使用者要「記住」某關鍵字/店家/說法之後對應哪個分類（例如：以後星巴克算餐飲、把 XX 歸類為 YY）
 - "record_transaction": 使用者是在記帳（收入/支出）
 - "query_analysis": 使用者想查詢/比較區間資料並要分析結論
 - "chat": 一般聊天
@@ -356,13 +392,15 @@ async function decideActionWithLLM(content, context = {}) {
 - isSetupMode: ${isSetupMode}
 - setupState: ${setupState || 'none'}
 - allowedCategories: ${categoryHint}
+- 最近對話（最多10段）：
+${historyText}
 
 使用者訊息:
 ${content}
 
 請只回傳 JSON：
 {
-  "action": "set_budget|set_reminder_time|set_gender|set_title|record_transaction|query_analysis|chat",
+  "action": "set_budget|set_reminder_time|set_gender|set_title|set_category_rule|record_transaction|query_analysis|chat",
   "confidence": 0-1 的數字,
   "needs_clarification": true/false,
   "follow_up_question": "若需要追問，給一句簡短追問，否則 null",
@@ -375,7 +413,9 @@ ${content}
   "note": "字串或null",
   "metric": "expense|income|net|count|null",
   "period_a": "today|yesterday|this_week|last_week|this_month|last_month|null",
-  "period_b": "today|yesterday|this_week|last_week|this_month|last_month|null"
+  "period_b": "today|yesterday|this_week|last_week|this_month|last_month|null",
+  "rule_keyword": "若 action=set_category_rule：要記住的關鍵字/片語，否則 null",
+  "rule_category": "若 action=set_category_rule：要對應到的分類（必須在 allowedCategories），否則 null"
 }`;
 
   const response = await callMiniMax(
@@ -384,7 +424,8 @@ ${content}
 規則：
 1) 若 action=record_transaction，category 必須從 allowedCategories 中選一個。
 2) 若無法判定對應分類，category 請回 null，並把 needs_clarification=true，給簡短追問。
-3) 禁止自創分類名稱。`
+3) 禁止自創分類名稱。
+4) 若 action=set_category_rule，請填 rule_keyword 與 rule_category（皆從 allowedCategories 選分類名稱）；若資訊不足則 needs_clarification=true。`
   );
   const parsed = safeParseJsonFromText(response);
   if (!parsed || !parsed.action) return null;
@@ -404,6 +445,8 @@ ${content}
     metric: parsed.metric || null,
     periodA: parsed.period_a || null,
     periodB: parsed.period_b || null,
+    ruleKeyword: typeof parsed.rule_keyword === 'string' ? parsed.rule_keyword : null,
+    ruleCategory: typeof parsed.rule_category === 'string' ? parsed.rule_category : null,
   };
 }
 
@@ -559,12 +602,35 @@ ${historyText}
 
 請參考最近對話脈絡，回覆一段自然、連貫的短回應（不超過30字），可以調侃、關心、或正常聊天。`;
   const response = await callMiniMax(prompt);
-  return response || '哦';
+  return sanitizeShortReply(response) || '哦';
 }
 
 async function generateMonthlyReport(userId, transactions) {
   const prompt = `使用者這個月的消費紀錄如下，請給出一段簡短的分析和建議（不超過100字）：\n\n${transactions.map((t) => `- ${t.category}: NT$ ${t.amount}`).join('\n')}`;
   return callMiniMax(prompt, '你是一個理財顧問，給出專業但親切的建議');
+}
+
+async function normalizeVoiceTranscriptWithLLM(rawText) {
+  const source = String(rawText || '').trim();
+  if (!source) return '';
+  const prompt = `請把下面這句語音轉文字，整理成適合記帳的精簡文字。
+
+原文：
+${source}
+
+規則：
+1) 修正常見錯字或同音字（例：工車 -> 公車、買當勞 -> 麥當勞）。
+2) 移除冗詞、口語贅字，保留關鍵資訊（時間詞/項目/金額/必要分類）。
+3) 不要新增原文沒有的金額或事實。
+4) 僅輸出整理後一句，不要解釋。
+
+示例：
+- 晚餐我在買當勞吃了101 -> 晚餐 麥當勞 101
+- 我剛剛搭工車花35 -> 公車 35`;
+
+  const cleaned = await callMiniMax(prompt, '你是記帳文字清洗器，只輸出整理後的一句文字，不要任何說明。');
+  const text = String(cleaned || '').trim();
+  return text || source;
 }
 
 module.exports = {
@@ -578,4 +644,5 @@ module.exports = {
   parseTransactionFromImageWithLLM,
   planDataQueryWithLLM,
   planTransactionActionWithLLM,
+  normalizeVoiceTranscriptWithLLM,
 };
