@@ -57,11 +57,13 @@ const channelMessageQueues = new Map();
 const pendingTransactionActions = new Map();
 const pendingMealPeriodActions = new Map();
 const pendingBackupRestoreActions = new Map();
+const pendingClarificationContexts = new Map();
 const recentQueryContexts = new Map();
 const recentDialogueCache = new Map();
 const dialogueWriteQueues = new Map();
 const DIALOGUE_HISTORY_DIR = path.resolve(process.cwd(), 'data', 'dialogue-history');
 const DIALOGUE_CACHE_LIMIT = 80;
+const CLARIFICATION_TTL_MS = 5 * 60 * 1000;
 let ensureDialogueDirPromise = null;
 
 async function handleMessage(message) {
@@ -313,11 +315,21 @@ async function handleMessageCore(message, options = {}) {
     }
 
     const routingHistory = await fetchRecentDialogueForLLM(message, 10);
+
+    // 清理過期的追問上下文
+    const channelId = message.channel.id;
+    const pendingClarification = pendingClarificationContexts.get(channelId);
+    if (pendingClarification && Date.now() > pendingClarification.expiresAt) {
+      pendingClarificationContexts.delete(channelId);
+    }
+    const activeClarification = pendingClarificationContexts.get(channelId) || null;
+
     const llmDecision = await decideActionWithLLM(content, {
       isSetupMode,
       setupState,
       allowedCategories,
       history: routingHistory,
+      pendingClarification: activeClarification?.partialDecision || null,
     });
 
     const llmUnavailable = !llmDecision;
@@ -352,11 +364,16 @@ async function handleMessageCore(message, options = {}) {
     }
 
     if (llmDecision?.action === 'set_category_rule') {
+      pendingClarificationContexts.delete(channelId);
       const kw = llmDecision.ruleKeyword || llmDecision.note;
       const cat = llmDecision.ruleCategory || llmDecision.category;
       if (kw && cat) {
         await handleCategoryRuleTeach(message, { keyword: kw, category: cat }, allowedCategories);
       } else if (llmDecision.needsClarification && llmDecision.followUpQuestion) {
+        pendingClarificationContexts.set(channelId, {
+          partialDecision: llmDecision,
+          expiresAt: Date.now() + CLARIFICATION_TTL_MS,
+        });
         await message.reply(llmDecision.followUpQuestion);
       } else {
         await message.reply('⚠️ 請說明要記住的關鍵字與分類，例如：以後「星巴克」視為「餐飲」類別。');
@@ -366,11 +383,45 @@ async function handleMessageCore(message, options = {}) {
 
     // 初始化完成後，允許透過自然語句修改常用設定（以 embed 回覆）
     if (llmDecision?.action && ['set_budget', 'set_reminder_time', 'set_gender', 'set_title'].includes(llmDecision.action)) {
+      pendingClarificationContexts.delete(channelId);
       const handled = await handleSettingUpdateByConversation(message, llmDecision, content);
       if (handled) return;
     }
 
+    // LLM 判斷為共同帳本轉入
+    if (llmDecision?.action === 'shared_ledger_transfer') {
+      const amount = Number(llmDecision.amount || 0);
+      if (amount > 0) {
+        pendingClarificationContexts.delete(channelId);
+        await handleSharedLedgerTransfer(message, amount);
+        return;
+      }
+      pendingClarificationContexts.set(channelId, {
+        partialDecision: llmDecision,
+        expiresAt: Date.now() + CLARIFICATION_TTL_MS,
+      });
+      await message.reply('請問要轉入共同帳本多少金額？');
+      return;
+    }
+
+    // LLM 判斷為共同帳本轉出/提領
+    if (llmDecision?.action === 'shared_ledger_payout') {
+      const amount = Number(llmDecision.amount || 0);
+      if (amount > 0) {
+        pendingClarificationContexts.delete(channelId);
+        await handleSharedLedgerPayout(message, { amount, targetHint: null, raw: content });
+        return;
+      }
+      pendingClarificationContexts.set(channelId, {
+        partialDecision: llmDecision,
+        expiresAt: Date.now() + CLARIFICATION_TTL_MS,
+      });
+      await message.reply('請問要從共同帳本提領多少金額？');
+      return;
+    }
+
     if (llmDecision?.action === 'record_transaction') {
+      pendingClarificationContexts.delete(channelId);
       const transactions = resolveRecordTransactions(llmDecision, content, allowedCategories, inferredOccurredAtIso, userCategoryRules);
       if (transactions.length > 1) {
         await processTransactionsBatch(message, transactions, styleTags);
@@ -401,6 +452,7 @@ async function handleMessageCore(message, options = {}) {
           userCategoryRules
         );
         if (merged) {
+          pendingClarificationContexts.delete(channelId);
           await processTransaction(message, merged, styleTags);
           return;
         }
@@ -409,6 +461,7 @@ async function handleMessageCore(message, options = {}) {
 
     const shouldForceQuery = shouldForceQueryAnalysisFallback(content, llmDecision);
     if (llmDecision?.action === 'query_analysis' || shouldForceQuery) {
+      pendingClarificationContexts.delete(channelId);
       console.log('[QUERY ROUTE]', JSON.stringify({
         content,
         action: llmDecision?.action || null,
@@ -418,11 +471,16 @@ async function handleMessageCore(message, options = {}) {
       if (handled) return;
     }
 
-    // LLM 低信心時，優先追問，不直接硬判
+    // LLM 低信心時，優先追問並儲存追問上下文，不直接硬判
     if (llmDecision?.needsClarification && llmDecision.followUpQuestion) {
+      pendingClarificationContexts.set(channelId, {
+        partialDecision: llmDecision,
+        expiresAt: Date.now() + CLARIFICATION_TTL_MS,
+      });
       await message.reply(llmDecision.followUpQuestion);
       return;
     }
+    pendingClarificationContexts.delete(channelId);
 
     // LLM 失敗時只記 log，不自動寫入
     if (!llmDecision) {
@@ -2964,9 +3022,11 @@ function getCategoryShareMarker(index) {
 function parseSharedLedgerTransferIntent(content) {
   const text = String(content || '').trim();
   if (!text) return null;
-  if (!/(共同[帳账]本|共同[帳账]號)/.test(text)) return null;
-  // 僅匹配「轉入共同帳本」語意，避免和「共同轉出/轉回」混淆
-  if (!/(添加|加到?|匯入|轉入|入帳|入账)/.test(text)) return null;
+  if (!/(共同[帳账]本|共同[帳账]號|共[帳账])/.test(text)) return null;
+  // 轉出/提領意圖需排除，避免誤判
+  if (/(轉出|轉回|提領|領回|取出|拿出|領出)/.test(text)) return null;
+  // 轉入/存入語意
+  if (!/(添加|加到?|匯入|轉入|入帳|入账|轉到|放入|存入|加入|丟入|丟到|存到)/.test(text)) return null;
   const amountMatch = text.match(/(\d+(?:\.\d+)?)/);
   if (!amountMatch) return null;
   const amount = Number(amountMatch[1]);
@@ -2977,8 +3037,8 @@ function parseSharedLedgerTransferIntent(content) {
 function parseSharedLedgerPayoutIntent(content) {
   const text = String(content || '').trim();
   if (!text) return null;
-  if (!/(共同[帳账]本|共同[帳账]號)/.test(text)) return null;
-  if (!/(轉出|轉回|轉給|匯給|提領|領回)/.test(text)) return null;
+  if (!/(共同[帳账]本|共同[帳账]號|共[帳账])/.test(text)) return null;
+  if (!/(轉出|轉回|轉給|匯給|提領|領回|取出|拿出|領出|從.*取|從.*拿)/.test(text)) return null;
   const amountMatch = text.match(/(\d+(?:\.\d+)?)/);
   if (!amountMatch) return null;
   const amount = Number(amountMatch[1]);

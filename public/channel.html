@@ -729,6 +729,26 @@
     </div>
   </div>
   
+  <div id="txTransferModal" class="modal-backdrop" onclick="onTransferModalBackdropClick(event)">
+    <div class="modal-card">
+      <div class="toggle-row" style="margin-bottom: 12px;">
+        <h2 style="margin:0;">↗️ 轉移帳目</h2>
+        <button class="btn" onclick="closeTransferModal()">關閉</button>
+      </div>
+      <p style="color:var(--muted);font-size:0.88rem;margin-bottom:14px;">帳目的所有資訊（金額、分類、時間）保持不變，僅變更所屬頻道。</p>
+      <div class="form-grid" style="margin-top:0;">
+        <div class="form-field full">
+          <label>目標頻道 ID</label>
+          <input id="transferTargetChannelId" type="text" inputmode="numeric" placeholder="例如 1234567890123456789" />
+        </div>
+      </div>
+      <div class="actions-row" style="margin-top:14px;">
+        <button class="btn btn-save-primary" onclick="submitTransferTransaction()">確認轉移</button>
+      </div>
+      <div id="transferTxStatus" class="status-text"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     function resolveChannelIdFromUrl() {
@@ -2377,6 +2397,63 @@
       }
     }
 
+    const TRANSFER_LAST_CHANNEL_KEY = 'accounting_transfer_last_channel_id';
+    let transferringTransactionId = null;
+
+    function openTransferModal(id) {
+      transferringTransactionId = id;
+      const lastChannelId = localStorage.getItem(TRANSFER_LAST_CHANNEL_KEY) || '';
+      const input = document.getElementById('transferTargetChannelId');
+      input.value = lastChannelId;
+      const status = document.getElementById('transferTxStatus');
+      status.textContent = '';
+      status.className = 'status-text';
+      document.getElementById('txTransferModal').classList.add('open');
+      input.focus();
+    }
+
+    function closeTransferModal() {
+      document.getElementById('txTransferModal').classList.remove('open');
+      transferringTransactionId = null;
+    }
+
+    function onTransferModalBackdropClick(event) {
+      if (event.target === document.getElementById('txTransferModal')) closeTransferModal();
+    }
+
+    async function submitTransferTransaction() {
+      if (!transferringTransactionId) return;
+      const targetChannelId = String(document.getElementById('transferTargetChannelId').value || '').trim();
+      const status = document.getElementById('transferTxStatus');
+      if (!/^\d{8,}$/.test(targetChannelId)) {
+        status.textContent = '頻道 ID 格式錯誤，需為數字（至少 8 位）';
+        status.className = 'status-text show error';
+        return;
+      }
+      if (targetChannelId === channelId) {
+        status.textContent = '目標頻道不能與目前頻道相同';
+        status.className = 'status-text show error';
+        return;
+      }
+      status.textContent = '轉移中...';
+      status.className = 'status-text show pending';
+      try {
+        const res = await fetch(`/api/channel/${channelId}/transactions/${transferringTransactionId}/transfer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetChannelId }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '轉移失敗');
+        localStorage.setItem(TRANSFER_LAST_CHANNEL_KEY, targetChannelId);
+        closeTransferModal();
+        await loadData();
+      } catch (error) {
+        status.textContent = `轉移失敗：${error.message}`;
+        status.className = 'status-text show error';
+      }
+    }
+
     function renderTransactionsList(transactions, mode) {
       if (!transactions.length) return '<div class="loading">這個月份還沒有記錄</div>';
 
@@ -2416,6 +2493,7 @@
                   <summary class="btn btn-icon" title="更多操作">⋯</summary>
                   <div class="tx-menu-panel">
                     <button onclick="openEditTransaction(${t.id})">編輯</button>
+                    <button onclick="openTransferModal(${t.id})">轉移</button>
                     <button class="danger" onclick="deleteTransaction(${t.id})">刪除</button>
                   </div>
                 </details>

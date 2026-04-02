@@ -366,6 +366,7 @@ async function decideActionWithLLM(content, context = {}) {
     setupState = null,
     allowedCategories = [],
     history = [],
+    pendingClarification = null,
   } = context;
   const categoryHint = Array.isArray(allowedCategories) && allowedCategories.length
     ? allowedCategories.join('、')
@@ -376,6 +377,9 @@ async function decideActionWithLLM(content, context = {}) {
       return `${role}：${String(item?.content || '').trim()}`;
     }).join('\n')
     : '（無）';
+  const pendingHint = pendingClarification
+    ? `\n- 追問上下文（使用者正在回答這個追問，請結合上下文推斷完整意圖）：action=${pendingClarification.action || ''}，amount=${pendingClarification.amount ?? 'null'}，type=${pendingClarification.type || 'null'}，category=${pendingClarification.category || 'null'}，note=${pendingClarification.note || 'null'}`
+    : '';
   const prompt = `請分析使用者訊息，判斷應採取的 action。
 
 可用 action:
@@ -385,6 +389,8 @@ async function decideActionWithLLM(content, context = {}) {
 - "set_title": 使用者是在回答稱呼設定
 - "set_category_rule": 使用者要「記住」某關鍵字/店家/說法之後對應哪個分類（例如：以後星巴克算餐飲、把 XX 歸類為 YY）
 - "record_transaction": 使用者是在記帳（收入/支出）
+- "shared_ledger_transfer": 使用者要把錢轉入共同帳本（個人→共同）
+- "shared_ledger_payout": 使用者要從共同帳本提領/轉回個人帳本（共同→個人）
 - "query_analysis": 使用者想查詢/比較區間資料並要分析結論
 - "chat": 一般聊天
 
@@ -393,14 +399,14 @@ async function decideActionWithLLM(content, context = {}) {
 - setupState: ${setupState || 'none'}
 - allowedCategories: ${categoryHint}
 - 最近對話（最多10段）：
-${historyText}
+${historyText}${pendingHint}
 
 使用者訊息:
 ${content}
 
 請只回傳 JSON：
 {
-  "action": "set_budget|set_reminder_time|set_gender|set_title|set_category_rule|record_transaction|query_analysis|chat",
+  "action": "set_budget|set_reminder_time|set_gender|set_title|set_category_rule|record_transaction|shared_ledger_transfer|shared_ledger_payout|query_analysis|chat",
   "confidence": 0-1 的數字,
   "needs_clarification": true/false,
   "follow_up_question": "若需要追問，給一句簡短追問，否則 null",

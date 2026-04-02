@@ -671,6 +671,36 @@ app.get('/api/channel/:channelId/settlements', withReadonlyDb((req, res, db) => 
   });
 }));
 
+// API: 轉移單筆交易到另一個頻道
+app.post('/api/channel/:channelId/transactions/:id/transfer', withWritableDb((req, res, db) => {
+  const { channelId, id } = req.params;
+  const { targetChannelId } = req.body || {};
+
+  const target = String(targetChannelId || '').trim();
+  if (!target || !/^\d+$/.test(target)) {
+    res.status(400).json({ error: '目標頻道 ID 格式錯誤，需為數字字串' });
+    return;
+  }
+  if (target === channelId) {
+    res.status(400).json({ error: '目標頻道不能與來源頻道相同' });
+    return;
+  }
+
+  const existing = db.prepare(`
+    SELECT id FROM transactions WHERE id = ? AND channel_id = ?
+  `).get(Number(id), channelId);
+  if (!existing) {
+    res.status(404).json({ error: '找不到該筆交易' });
+    return;
+  }
+
+  db.prepare(`
+    UPDATE transactions SET channel_id = ? WHERE id = ? AND channel_id = ?
+  `).run(target, Number(id), channelId);
+
+  res.json({ success: true, targetChannelId: target });
+}));
+
 // API: 刪除單筆交易
 app.delete('/api/channel/:channelId/transactions/:id', withWritableDb((req, res, db) => {
   const { channelId, id } = req.params;
