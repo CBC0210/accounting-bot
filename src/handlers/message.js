@@ -15,6 +15,7 @@ const {
   completeChannelSetup,
   getChannelMonthlyExpense,
   getChannelMonthlyExpenseByCategory,
+  getChannelMonthlyNet,
   getChannelTodayExpense,
   getChannelNetBalance,
   getChannelRangeSummary,
@@ -742,8 +743,8 @@ async function processTransaction(message, transaction, styleTags = [], options 
   `, [message.channel.id, message.author.id, amount, category, note, type, txTimestamp]);
   const transactionId = Number(insertedRow?.id || 0);
   
-  // 取得餘額
-  const balance = getChannelNetBalance(message.channel.id);
+  // 取得當月結餘
+  const balance = getChannelMonthlyNet(message.channel.id);
   const settings = getChannelSettings(message.channel.id);
   const budget = getEffectiveMonthlyBudget(settings);
   const monthlySpent = getChannelMonthlyExpense(message.channel.id);
@@ -768,7 +769,7 @@ async function processTransaction(message, transaction, styleTags = [], options 
         { name: '金額', value: `${type === 'income' ? '+' : '-'}${amount}`, inline: true },
         { name: '分類', value: category, inline: true },
         { name: '時間', value: recordTimeText, inline: true },
-        { name: '餘額', value: balance.toString(), inline: false },
+        { name: '當月結餘', value: balance.toString(), inline: false },
         { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false },
       ],
     });
@@ -796,7 +797,7 @@ async function processTransactionsBatch(message, transactions, styleTags = []) {
     inserted.push({ tx, id: Number(result?.id || 0) });
   }
 
-  const balance = getChannelNetBalance(message.channel.id);
+  const balance = getChannelMonthlyNet(message.channel.id);
   const settings = getChannelSettings(message.channel.id);
   const budget = getEffectiveMonthlyBudget(settings);
   const monthlySpent = getChannelMonthlyExpense(message.channel.id);
@@ -815,7 +816,7 @@ async function processTransactionsBatch(message, transactions, styleTags = []) {
     title: `✅ 記帳成功（共 ${safeList.length} 筆）`,
     fields: [
       { name: '明細', value: moreCount > 0 ? `${lines}\n... 其餘 ${moreCount} 筆` : lines, inline: false },
-      { name: '最新餘額', value: balance.toString(), inline: true },
+      { name: '當月結餘', value: balance.toString(), inline: true },
       { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: true },
     ],
   });
@@ -3125,8 +3126,8 @@ async function handleSharedLedgerTransfer(message, amount) {
     nowIso,
   ]);
 
-  const sourceBalance = getChannelNetBalance(message.channel.id);
-  const sharedBalance = getChannelNetBalance(sharedChannelId);
+  const sourceBalance = getChannelMonthlyNet(message.channel.id);
+  const sharedBalance = getChannelMonthlyNet(sharedChannelId);
   void updateChannelBalanceName(message.channel);
   try {
     const sharedChannel = await message.guild.channels.fetch(sharedChannelId);
@@ -3139,8 +3140,8 @@ async function handleSharedLedgerTransfer(message, amount) {
     title: '🏦 轉入共同帳本成功',
     fields: [
       { name: '金額', value: `NT$ ${amount.toLocaleString()}`, inline: true },
-      { name: '來源頻道餘額', value: `NT$ ${sourceBalance.toLocaleString()}`, inline: true },
-      { name: '共同帳本餘額', value: `NT$ ${sharedBalance.toLocaleString()}`, inline: true },
+      { name: '來源頻道當月結餘', value: `NT$ ${sourceBalance.toLocaleString()}`, inline: true },
+      { name: '共同帳本當月結餘', value: `NT$ ${sharedBalance.toLocaleString()}`, inline: true },
       { name: '共同帳本頻道', value: `<#${sharedChannelId}>`, inline: false },
     ],
   });
@@ -3154,7 +3155,7 @@ async function handleSharedLedgerTransfer(message, amount) {
         .addFields(
           { name: '來源', value: `${actorName}`, inline: false },
           { name: '金額', value: `+NT$ ${amount.toLocaleString()}`, inline: true },
-          { name: '共同帳本餘額', value: `NT$ ${sharedBalance.toLocaleString()}`, inline: true }
+          { name: '共同帳本當月結餘', value: `NT$ ${sharedBalance.toLocaleString()}`, inline: true }
         )
         .setTimestamp();
       await sharedChannel.send({ embeds: [embed] });
@@ -3257,8 +3258,8 @@ async function handleSharedLedgerPayout(message, intent) {
     nowIso,
   ]);
 
-  const sharedBalanceAfter = getChannelNetBalance(sharedChannelId);
-  const targetBalanceAfter = getChannelNetBalance(target.channelId);
+  const sharedBalanceAfter = getChannelMonthlyNet(sharedChannelId);
+  const targetBalanceAfter = getChannelMonthlyNet(target.channelId);
   void updateChannelBalanceName(sourceChannel);
   if (target.channel) void updateChannelBalanceName(target.channel);
 
@@ -3271,8 +3272,8 @@ async function handleSharedLedgerPayout(message, intent) {
     fields: [
       { name: '目標帳本', value: target.ledgerName, inline: false },
       { name: '金額', value: `NT$ ${amount.toLocaleString()}`, inline: true },
-      { name: '共同帳本餘額', value: `NT$ ${sharedBalanceAfter.toLocaleString()}`, inline: true },
-      { name: '目標帳本餘額', value: `NT$ ${targetBalanceAfter.toLocaleString()}`, inline: true },
+      { name: '共同帳本當月結餘', value: `NT$ ${sharedBalanceAfter.toLocaleString()}`, inline: true },
+      { name: '目標帳本當月結餘', value: `NT$ ${targetBalanceAfter.toLocaleString()}`, inline: true },
       { name: '共同 Dashboard', value: `[查看](${sharedDashboardUrl})`, inline: true },
       { name: '目標 Dashboard', value: `[查看](${targetDashboardUrl})`, inline: true },
     ],
@@ -3287,7 +3288,7 @@ async function handleSharedLedgerPayout(message, intent) {
         .addFields(
           { name: '對象', value: target.ledgerName, inline: false },
           { name: '金額', value: `-NT$ ${amount.toLocaleString()}`, inline: true },
-          { name: '目前餘額', value: `NT$ ${sharedBalanceAfter.toLocaleString()}`, inline: true }
+          { name: '當月結餘', value: `NT$ ${sharedBalanceAfter.toLocaleString()}`, inline: true }
         )
         .setTimestamp();
       await sourceChannel.send({ embeds: [embed] });
@@ -3305,7 +3306,7 @@ async function handleSharedLedgerPayout(message, intent) {
         .addFields(
           { name: '來源', value: '共同帳本', inline: false },
           { name: '金額', value: `+NT$ ${amount.toLocaleString()}`, inline: true },
-          { name: '目前餘額', value: `NT$ ${targetBalanceAfter.toLocaleString()}`, inline: true }
+          { name: '當月結餘', value: `NT$ ${targetBalanceAfter.toLocaleString()}`, inline: true }
         )
         .setTimestamp();
       await target.channel.send({ embeds: [embed] });
@@ -3813,8 +3814,8 @@ async function handlePersonalLedgerTransfer(message, transfer) {
     nowIso,
   ]);
 
-  const sourceBalance = getChannelNetBalance(message.channel.id);
-  const targetBalance = getChannelNetBalance(target.channelId);
+  const sourceBalance = getChannelMonthlyNet(message.channel.id);
+  const targetBalance = getChannelMonthlyNet(target.channelId);
   void updateChannelBalanceName(message.channel);
   if (target.channel) {
     void updateChannelBalanceName(target.channel);
@@ -3825,8 +3826,8 @@ async function handlePersonalLedgerTransfer(message, transfer) {
     fields: [
       { name: '轉入目標', value: target.ledgerName, inline: false },
       { name: '金額', value: `NT$ ${amount.toLocaleString()}`, inline: true },
-      { name: '來源帳本餘額', value: `NT$ ${sourceBalance.toLocaleString()}`, inline: true },
-      { name: '目標帳本餘額', value: `NT$ ${targetBalance.toLocaleString()}`, inline: true },
+      { name: '來源帳本當月結餘', value: `NT$ ${sourceBalance.toLocaleString()}`, inline: true },
+      { name: '目標帳本當月結餘', value: `NT$ ${targetBalance.toLocaleString()}`, inline: true },
     ],
   });
 
@@ -3838,7 +3839,7 @@ async function handlePersonalLedgerTransfer(message, transfer) {
         .addFields(
           { name: '來源', value: `${sourceLedgerName}（${actorName}）`, inline: false },
           { name: '金額', value: `+NT$ ${amount.toLocaleString()}`, inline: true },
-          { name: '目前餘額', value: `NT$ ${targetBalance.toLocaleString()}`, inline: true }
+          { name: '當月結餘', value: `NT$ ${targetBalance.toLocaleString()}`, inline: true }
         )
         .setTimestamp();
       await target.channel.send({ embeds: [embed] });

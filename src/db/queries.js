@@ -208,6 +208,21 @@ function getChannelMonthlyExpense(channelId, now = new Date()) {
   return row ? Number(row.total) : 0;
 }
 
+function getChannelMonthlyNet(channelId, now = new Date()) {
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
+  const row = get(`
+    SELECT
+      COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income,
+      COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
+    FROM transactions
+    WHERE channel_id = ?
+      AND timestamp >= ?
+      AND timestamp < ?
+  `, [channelId, monthStart.toISOString(), nextMonthStart.toISOString()]);
+  return row ? Number(row.income) - Number(row.expense) : 0;
+}
+
 function getChannelNetBalance(channelId) {
   const incomeRow = get(`
     SELECT COALESCE(SUM(amount), 0) AS total
@@ -539,6 +554,7 @@ module.exports = {
   getTransactions,
   getChannelMonthlyExpense,
   getChannelMonthlyExpenseByCategory,
+  getChannelMonthlyNet,
   getChannelTodayExpense,
   getChannelNetBalance,
   getUserRangeSummary,

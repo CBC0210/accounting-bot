@@ -1,4 +1,4 @@
-const { getChannelSettings, getChannelNetBalance } = require('../db/queries');
+const { getChannelSettings, getChannelMonthlyNet } = require('../db/queries');
 const { EmbedBuilder } = require('discord.js');
 
 function getChannelIdFromChannel(channel) {
@@ -63,7 +63,7 @@ async function updateChannelBalanceName(channel) {
   const showBalanceInName = Number(settings?.show_balance_in_name ?? 1) === 1;
   if (type !== 'shared' && !showBalanceInName) return false;
 
-  const balance = getChannelNetBalance(channel.id);
+  const balance = getChannelMonthlyNet(channel.id);
   const baseName = buildLedgerBaseName(settings);
   const nextName = normalizeChannelName(`${baseName}_${formatBalanceNumber(balance)}`);
   if (!nextName) return false;
