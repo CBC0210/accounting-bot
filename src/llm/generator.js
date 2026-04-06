@@ -567,11 +567,13 @@ ${content}
 規則：
 1) 像「刪除、刪掉、移除」判為 delete。
 2) 像「修改、改成、改為、更正、修正」判為 update。
-3) 像「不計入預算、不要計入預算、排除預算、不算預算、這筆不算」等否定預算語意，判為 exclude_budget。
-4) 像「計入預算、納入預算、恢復預算、取消排除」（整體語意為重新納入），判為 include_budget。
-5) 若句子沒有明確 id，但是回覆訊息且 action 不是 none，可把 id 設為 replied_transaction_id。
-6) 若是 update 但缺更新內容，needs_clarification=true 並給追問。
-7) category 必須優先使用可用分類，不能亂造。`;
+3) 對支出：「不計入預算、不要計入預算、排除預算、不算預算、這筆不算」等，判為 exclude_budget。
+4) 對支出：「計入預算、納入預算、恢復預算、取消排除」（重新納入），判為 include_budget。
+5) 對收入：「計入預算、抵消預算、用來抵預算、這筆算進預算」，判為 exclude_budget（內部用同一欄位）。
+6) 對收入：「不計預算、取消抵消、不要抵」，判為 include_budget。
+7) 若句子沒有明確 id，但是回覆訊息且 action 不是 none，可把 id 設為 replied_transaction_id。
+8) 若是 update 但缺更新內容，needs_clarification=true 並給追問。
+9) category 必須優先使用可用分類，不能亂造。`;
 
   const response = await callMiniMax(prompt, '你是嚴格 JSON 輸出器，只回 JSON');
   const parsed = safeParseJsonFromText(response);

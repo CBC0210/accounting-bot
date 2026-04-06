@@ -124,6 +124,16 @@
       padding: 1px 7px;
       margin-top: 2px;
     }
+    .t-income-budget-badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      color: #34d399;
+      background: rgba(52, 211, 153, 0.12);
+      border: 1px solid rgba(52, 211, 153, 0.35);
+      border-radius: 999px;
+      padding: 1px 7px;
+      margin-top: 2px;
+    }
     .excluded-from-budget .t-amount {
       opacity: 0.55;
       text-decoration: line-through;
@@ -2513,12 +2523,18 @@
           const amountPrefix = t.type === 'income' ? '+' : '-';
           const dateTime = formatDateTimeText(t.timestamp);
           const categoryStyle = getCategoryBadgeStyle(t.category, t.type);
-          const isExcluded = t.exclude_from_budget == 1;
-          const excludeBadge = isExcluded
+          const isFlagSet = t.exclude_from_budget == 1;
+          const isIncomeType = t.type === 'income';
+          const excludeBadge = (!isIncomeType && isFlagSet)
             ? `<span class="t-exclude-badge" title="此筆不計入預算">🚫 不計預算</span>`
-            : '';
+            : (isIncomeType && isFlagSet)
+              ? `<span class="t-income-budget-badge" title="此收入計入預算抵消">💰 抵消預算</span>`
+              : '';
+          const budgetMenuLabel = isIncomeType
+            ? (isFlagSet ? '✅ 取消抵消預算' : '💰 計入預算抵消')
+            : (isFlagSet ? '✅ 計入預算' : '🚫 不計入預算');
           html += `
-            <li class="transaction${isExcluded ? ' excluded-from-budget' : ''}">
+            <li class="transaction${(!isIncomeType && isFlagSet) ? ' excluded-from-budget' : ''}">
               <div class="t-info">
                 <span class="t-category" style="${categoryStyle}">${escapeHtml(t.category)}</span>
                 ${excludeBadge}
@@ -2531,7 +2547,7 @@
                   <summary class="btn btn-icon" title="更多操作">⋯</summary>
                   <div class="tx-menu-panel">
                     <button onclick="openEditTransaction(${t.id})">編輯</button>
-                    <button onclick="toggleExcludeBudget(${t.id}, ${isExcluded ? 0 : 1})">${isExcluded ? '✅ 計入預算' : '🚫 不計入預算'}</button>
+                    <button onclick="toggleExcludeBudget(${t.id}, ${isFlagSet ? 0 : 1})">${budgetMenuLabel}</button>
                     <button onclick="openTransferModal(${t.id})">轉移</button>
                     <button class="danger" onclick="deleteTransaction(${t.id})">刪除</button>
                   </div>

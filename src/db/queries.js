@@ -210,7 +210,7 @@ function getChannelMonthlyExpense(channelId, now = new Date()) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
   const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
 
-  const row = get(`
+  const expRow = get(`
     SELECT COALESCE(SUM(amount), 0) AS total
     FROM transactions
     WHERE channel_id = ?
@@ -220,7 +220,17 @@ function getChannelMonthlyExpense(channelId, now = new Date()) {
       AND (exclude_from_budget IS NULL OR exclude_from_budget = 0)
   `, [channelId, monthStart.toISOString(), nextMonthStart.toISOString()]);
 
-  return row ? Number(row.total) : 0;
+  const incRow = get(`
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM transactions
+    WHERE channel_id = ?
+      AND type = 'income'
+      AND timestamp >= ?
+      AND timestamp < ?
+      AND exclude_from_budget = 1
+  `, [channelId, monthStart.toISOString(), nextMonthStart.toISOString()]);
+
+  return Math.max(0, (expRow ? Number(expRow.total) : 0) - (incRow ? Number(incRow.total) : 0));
 }
 
 function getChannelMonthlyNet(channelId, now = new Date()) {
@@ -275,7 +285,7 @@ function getChannelMonthlyExpenseByCategory(channelId, category, now = new Date(
 function getChannelTodayExpense(channelId, now = new Date()) {
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   const nextDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
-  const row = get(`
+  const expRow = get(`
     SELECT COALESCE(SUM(amount), 0) AS total
     FROM transactions
     WHERE channel_id = ?
@@ -284,7 +294,16 @@ function getChannelTodayExpense(channelId, now = new Date()) {
       AND timestamp < ?
       AND (exclude_from_budget IS NULL OR exclude_from_budget = 0)
   `, [channelId, dayStart.toISOString(), nextDayStart.toISOString()]);
-  return row ? Number(row.total) : 0;
+  const incRow = get(`
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM transactions
+    WHERE channel_id = ?
+      AND type = 'income'
+      AND timestamp >= ?
+      AND timestamp < ?
+      AND exclude_from_budget = 1
+  `, [channelId, dayStart.toISOString(), nextDayStart.toISOString()]);
+  return Math.max(0, (expRow ? Number(expRow.total) : 0) - (incRow ? Number(incRow.total) : 0));
 }
 
 function getUserRangeSummary(userId, startIso, endIso) {

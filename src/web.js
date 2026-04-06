@@ -598,7 +598,9 @@ app.get('/api/channel/:channelId/analytics/month', withReadonlyDb((req, res, db)
     SELECT
       COALESCE(SUM(CASE WHEN type='income' THEN amount END), 0) AS income_total,
       COALESCE(SUM(CASE WHEN type='expense' THEN amount END), 0) AS expense_total,
-      COALESCE(SUM(CASE WHEN type='expense' AND (exclude_from_budget IS NULL OR exclude_from_budget=0) THEN amount END), 0) AS budget_expense_total
+      COALESCE(SUM(CASE WHEN type='expense' AND (exclude_from_budget IS NULL OR exclude_from_budget=0) THEN amount END), 0)
+        - COALESCE(SUM(CASE WHEN type='income' AND exclude_from_budget=1 THEN amount END), 0)
+        AS budget_expense_total
     FROM transactions
     WHERE channel_id = ?
       AND timestamp >= ?

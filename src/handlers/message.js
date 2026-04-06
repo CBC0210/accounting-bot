@@ -766,14 +766,17 @@ async function processTransaction(message, transaction, styleTags = [], options 
     const excludeRow = transactionId > 0
       ? getTransactionById(message.channel.id, transactionId)
       : null;
-    const isExcluded = excludeRow?.exclude_from_budget === 1;
+    const isFlagSet = excludeRow?.exclude_from_budget === 1;
+    const isIncome = type === 'income';
     const excludeButton = transactionId > 0
       ? new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId(`exclude_budget:${transactionId}:${message.channel.id}`)
-            .setLabel(isExcluded ? '已排除預算 ✓' : '不計入預算')
-            .setStyle(isExcluded ? ButtonStyle.Secondary : ButtonStyle.Primary)
-            .setEmoji('🚫'),
+            .setLabel(isIncome
+              ? (isFlagSet ? '已計入預算 ✓' : '計入預算')
+              : (isFlagSet ? '已排除預算 ✓' : '不計入預算'))
+            .setStyle(isFlagSet ? ButtonStyle.Secondary : ButtonStyle.Primary)
+            .setEmoji(isIncome ? '💰' : '🚫'),
         )
       : null;
     await sendEmbed(message, {
@@ -3432,13 +3435,22 @@ async function handleTransactionManagementIntent(message, intent) {
       await message.reply('⚠️ 找不到對應的記帳條目，請回覆正確的記帳訊息。');
       return true;
     }
-    const exclude = intent.action === 'exclude_budget';
-    setTransactionExcludeFromBudget(message.channel.id, txId, exclude);
+    const tx = getTransactionById(message.channel.id, txId);
+    const isIncome = tx?.type === 'income';
+    const flagValue = intent.action === 'exclude_budget';
+    setTransactionExcludeFromBudget(message.channel.id, txId, flagValue);
     void updateChannelBalanceName(message.channel);
-    await message.reply(exclude
-      ? `🚫 已將 ID ${txId} 排除於預算計算外（仍記錄在帳本中）。`
-      : `✅ 已將 ID ${txId} 重新納入預算計算。`
-    );
+    if (isIncome) {
+      await message.reply(flagValue
+        ? `💰 已將收入 ID ${txId} 計入預算抵消（可減少預算消耗）。`
+        : `✅ 已取消收入 ID ${txId} 的預算抵消。`
+      );
+    } else {
+      await message.reply(flagValue
+        ? `🚫 已將 ID ${txId} 排除於預算計算外（仍記錄在帳本中）。`
+        : `✅ 已將 ID ${txId} 重新納入預算計算。`
+      );
+    }
     return true;
   }
 

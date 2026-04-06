@@ -541,24 +541,31 @@ async function handleComponentInteraction(interaction) {
       await interaction.reply({ content: '⚠️ 找不到該筆記錄', ephemeral: true });
       return;
     }
-    const nowExcluded = tx.exclude_from_budget === 1;
-    const newExcluded = !nowExcluded;
-    setTransactionExcludeFromBudget(channelId, transactionId, newExcluded);
+    const isIncome = tx.type === 'income';
+    const nowFlagged = tx.exclude_from_budget === 1;
+    const newFlagged = !nowFlagged;
+    setTransactionExcludeFromBudget(channelId, transactionId, newFlagged);
     void updateChannelBalanceName(interaction.channel);
 
     // 更新按鈕狀態
     const updatedButton = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`exclude_budget:${transactionId}:${channelId}`)
-        .setLabel(newExcluded ? '已排除預算 ✓' : '不計入預算')
-        .setStyle(newExcluded ? ButtonStyle.Secondary : ButtonStyle.Primary)
-        .setEmoji('🚫'),
+        .setLabel(isIncome
+          ? (newFlagged ? '已計入預算 ✓' : '計入預算')
+          : (newFlagged ? '已排除預算 ✓' : '不計入預算'))
+        .setStyle(newFlagged ? ButtonStyle.Secondary : ButtonStyle.Primary)
+        .setEmoji(isIncome ? '💰' : '🚫'),
     );
     await interaction.update({ components: [updatedButton] });
     await interaction.followUp({
-      content: newExcluded
-        ? `🚫 ID ${transactionId} 已排除於預算計算外（仍記錄在帳本中）。`
-        : `✅ ID ${transactionId} 已重新納入預算計算。`,
+      content: isIncome
+        ? (newFlagged
+          ? `💰 ID ${transactionId} 收入已計入預算抵消。`
+          : `✅ ID ${transactionId} 收入已取消預算抵消。`)
+        : (newFlagged
+          ? `🚫 ID ${transactionId} 已排除於預算計算外（仍記錄在帳本中）。`
+          : `✅ ID ${transactionId} 已重新納入預算計算。`),
       ephemeral: true,
     });
     return;
