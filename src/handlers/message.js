@@ -23,6 +23,8 @@ const {
   getChannelCategoryBreakdown,
   getChannelDailyMetricSeries,
   getChannelTransactionsInRange,
+  setTransactionExcludeFromBudget,
+  getTransactionById,
 } = require('../db/queries');
 const {
   generateResponse,
@@ -761,6 +763,19 @@ async function processTransaction(message, transaction, styleTags = [], options 
   // 2) 發送記帳成功訊息
   if (!skipSuccessEmbed) {
     const recordTimeText = formatDateTimeForDisplay(txTimestamp);
+    const excludeRow = transactionId > 0
+      ? getTransactionById(message.channel.id, transactionId)
+      : null;
+    const isExcluded = excludeRow?.exclude_from_budget === 1;
+    const excludeButton = transactionId > 0
+      ? new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`exclude_budget:${transactionId}:${message.channel.id}`)
+            .setLabel(isExcluded ? '已排除預算 ✓' : '不計入預算')
+            .setStyle(isExcluded ? ButtonStyle.Secondary : ButtonStyle.Primary)
+            .setEmoji('🚫'),
+        )
+      : null;
     await sendEmbed(message, {
       title: '✅ 記帳成功',
       fields: [
@@ -772,6 +787,7 @@ async function processTransaction(message, transaction, styleTags = [], options 
         { name: '當月結餘', value: balance.toString(), inline: false },
         { name: 'Dashboard', value: `[查看明細](${dashboardUrl})`, inline: false },
       ],
+      ...(excludeButton ? { components: [excludeButton] } : {}),
     });
   }
 
@@ -1417,7 +1433,8 @@ function resolveRecordTransactions(decision, content = '', allowedCategories = [
 }
 
 function parseMultipleTransactionsFromText(content, allowedCategories = [], decision = null, fallbackTimestampIso = null, userCategoryRules = []) {
-  const text = String(content || '').trim();
+  // 先移除開頭的日期/時間前綴（例如 4/3、2026/4/3），避免 "4/3 coco -130" 被拆成兩筆
+  const text = stripLeadingDateTimePrefix(String(content || '').trim());
   if (!text) return [];
 
   const regex = /([^\d+\-]{1,40}?)\s*([+-]?\d+(?:\.\d+)?)(?=(?:\s+[^\d+\-]{1,40}\s*[+-]?\d+(?:\.\d+)?)|$)/g;
@@ -3365,7 +3382,8 @@ async function parseTransactionManagementIntent(message, content, allowedCategor
   const text = String(content || '').trim();
   if (!text) return null;
   const referencedId = await resolveReferencedTransactionId(message);
-  const hasManagementCue = /(刪除|刪掉|删除|移除|修改|更改|調整|改成|改為|更正|修正)/.test(text);
+
+  const hasManagementCue = /(刪除|刪掉|删除|移除|修改|更改|調整|改成|改為|更正|修正|預算|不計|不要計|不算|排除|計入|納入|恢復|取消排除)/.test(text);
   const hasReplyReference = Boolean(referencedId && message?.reference?.messageId);
   if (!hasManagementCue && !hasReplyReference) return null;
 
@@ -3377,7 +3395,8 @@ async function parseTransactionManagementIntent(message, content, allowedCategor
   const actionFromRegex = /(刪除|刪掉|删除|移除)/.test(text)
     ? 'delete'
     : (/(修改|更改|調整|改成|改為|更正|修正)/.test(text) ? 'update' : null);
-  const llmAction = (llmPlan?.action === 'delete' || llmPlan?.action === 'update') ? llmPlan.action : null;
+  const validLlmActions = new Set(['delete', 'update', 'exclude_budget', 'include_budget']);
+  const llmAction = validLlmActions.has(llmPlan?.action) ? llmPlan.action : null;
   const action = llmAction || actionFromRegex;
   if (!action) return null;
   const id = extractTransactionIdFromText(text) || llmPlan?.id || referencedId || null;
@@ -3407,6 +3426,22 @@ async function parseTransactionManagementIntent(message, content, allowedCategor
 }
 
 async function handleTransactionManagementIntent(message, intent) {
+  if (intent.action === 'exclude_budget' || intent.action === 'include_budget') {
+    const txId = Number(intent.id || 0);
+    if (!txId) {
+      await message.reply('⚠️ 找不到對應的記帳條目，請回覆正確的記帳訊息。');
+      return true;
+    }
+    const exclude = intent.action === 'exclude_budget';
+    setTransactionExcludeFromBudget(message.channel.id, txId, exclude);
+    void updateChannelBalanceName(message.channel);
+    await message.reply(exclude
+      ? `🚫 已將 ID ${txId} 排除於預算計算外（仍記錄在帳本中）。`
+      : `✅ 已將 ID ${txId} 重新納入預算計算。`
+    );
+    return true;
+  }
+
   if (intent?.needsClarification && intent?.followUpQuestion && !intent.id && !Object.keys(intent.updates || {}).length) {
     await message.reply(intent.followUpQuestion);
     return true;

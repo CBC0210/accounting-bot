@@ -82,6 +82,9 @@ function migrateSchema() {
   if (!hasColumn('channel_settings', 'category_rules_text')) {
     db.run(`ALTER TABLE channel_settings ADD COLUMN category_rules_text TEXT`);
   }
+  if (!hasColumn('transactions', 'exclude_from_budget')) {
+    db.run(`ALTER TABLE transactions ADD COLUMN exclude_from_budget INTEGER DEFAULT 0`);
+  }
 }
 
 async function initDatabase() {
@@ -109,6 +112,7 @@ async function initDatabase() {
       note TEXT,
       type TEXT DEFAULT 'expense',
       timestamp TEXT NOT NULL,
+      exclude_from_budget INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);

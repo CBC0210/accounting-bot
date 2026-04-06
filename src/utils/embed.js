@@ -1,10 +1,10 @@
 const { EmbedBuilder } = require('discord.js');
 
-async function sendEmbed(message, { title, fields, footer, color = 0x00b894 }) {
+async function sendEmbed(message, { title, fields, footer, color = 0x00b894, components }) {
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(title);
-  
+
   if (fields) {
     fields.forEach(field => {
       embed.addFields({
@@ -14,14 +14,17 @@ async function sendEmbed(message, { title, fields, footer, color = 0x00b894 }) {
       });
     });
   }
-  
+
   if (footer) {
     embed.setFooter({ text: footer });
   }
-  
+
   embed.setTimestamp();
-  
-  return await message.reply({ embeds: [embed] });
+
+  const replyPayload = { embeds: [embed] };
+  if (components && components.length) replyPayload.components = components;
+
+  return await message.reply(replyPayload);
 }
 
 module.exports = { sendEmbed };

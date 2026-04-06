@@ -2,6 +2,7 @@ const {
   addTransaction,
   getChannelSettings,
   getChannelNetBalance,
+  getChannelMonthlyNet,
   getChannelRangeSummary,
   getChannelMonthlyExpense,
   getChannelTransactionCount,
@@ -12,6 +13,8 @@ const {
   setChannelBudget,
   clearChannelTransactions,
   clearChannelSettings,
+  setTransactionExcludeFromBudget,
+  getTransactionById,
 } = require('../db/queries');
 const { generateResponse } = require('../llm/generator');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -103,7 +106,7 @@ async function handleExpense(interaction, options) {
     timestamp: new Date().toISOString(),
   });
   
-  const balance = getChannelNetBalance(interaction.channelId);
+  const balance = getChannelMonthlyNet(interaction.channelId);
   const settings = getChannelSettings(interaction.channelId);
   const budget = getEffectiveMonthlyBudget(settings);
   const monthlySpent = getChannelMonthlyExpense(interaction.channelId);
@@ -111,9 +114,9 @@ async function handleExpense(interaction, options) {
   // 頻道改名走背景，不阻塞 slash 指令回覆
   void updateChannelBalanceName(interaction.channel);
   const feedback = await generateResponse(transaction, balance, { budget, monthlySpent, styleTags });
-  
+
   await interaction.reply({
-    content: `✅ 記錄完成！\nNT$ ${amount}（${category}）\n💰 餘額：NT$ ${balance}\n${feedback}`,
+    content: `✅ 記錄完成！\nNT$ ${amount}（${category}）\n💰 當月結餘：NT$ ${balance}\n${feedback}`,
     ephemeral: false,
   });
 }
@@ -140,7 +143,7 @@ async function handleIncome(interaction, options) {
     timestamp: new Date().toISOString(),
   });
   
-  const balance = getChannelNetBalance(interaction.channelId);
+  const balance = getChannelMonthlyNet(interaction.channelId);
   const settings = getChannelSettings(interaction.channelId);
   const budget = getEffectiveMonthlyBudget(settings);
   const monthlySpent = getChannelMonthlyExpense(interaction.channelId);
@@ -148,9 +151,9 @@ async function handleIncome(interaction, options) {
   // 頻道改名走背景，不阻塞 slash 指令回覆
   void updateChannelBalanceName(interaction.channel);
   const feedback = await generateResponse(transaction, balance, { budget, monthlySpent, styleTags });
-  
+
   await interaction.reply({
-    content: `✅ 收入記錄完成！\n+NT$ ${amount}（${source}）\n💰 餘額：NT$ ${balance}\n${feedback}`,
+    content: `✅ 收入記錄完成！\n+NT$ ${amount}（${source}）\n💰 當月結餘：NT$ ${balance}\n${feedback}`,
     ephemeral: false,
   });
 }
@@ -175,14 +178,14 @@ async function handleBalance(interaction) {
   }
 
   const summary = getChannelRangeSummary(interaction.channelId, parsed.startIso, parsed.endIso);
-  const overallBalance = getChannelNetBalance(interaction.channelId);
+  const monthlyNet = getChannelMonthlyNet(interaction.channelId);
   const embed = new EmbedBuilder()
     .setColor(0x4f46e5)
     .setTitle(`📊 ${parsed.label} 收支摘要`)
     .addFields(
       { name: '區間筆數', value: `${summary.count}`, inline: true },
       { name: '區間淨額', value: `NT$ ${summary.net.toLocaleString()}`, inline: true },
-      { name: '目前總餘額', value: `NT$ ${overallBalance.toLocaleString()}`, inline: true },
+      { name: '本月淨額', value: `NT$ ${monthlyNet.toLocaleString()}`, inline: true },
       { name: '收入', value: `NT$ ${summary.income.toLocaleString()}`, inline: true },
       { name: '支出', value: `NT$ ${summary.expense.toLocaleString()}`, inline: true }
     )
@@ -522,7 +525,46 @@ async function handleInitSharedLedger(interaction) {
 
 async function handleComponentInteraction(interaction) {
   if (!interaction.isButton()) return;
-  const [action, channelId, ownerUserId] = String(interaction.customId || '').split(':');
+  const parts = String(interaction.customId || '').split(':');
+  const action = parts[0];
+
+  // 排除/納入預算按鈕
+  if (action === 'exclude_budget') {
+    const transactionId = Number(parts[1] || 0);
+    const channelId = parts[2] || interaction.channelId;
+    if (!transactionId) {
+      await interaction.reply({ content: '⚠️ 無效的操作', ephemeral: true });
+      return;
+    }
+    const tx = getTransactionById(channelId, transactionId);
+    if (!tx) {
+      await interaction.reply({ content: '⚠️ 找不到該筆記錄', ephemeral: true });
+      return;
+    }
+    const nowExcluded = tx.exclude_from_budget === 1;
+    const newExcluded = !nowExcluded;
+    setTransactionExcludeFromBudget(channelId, transactionId, newExcluded);
+    void updateChannelBalanceName(interaction.channel);
+
+    // 更新按鈕狀態
+    const updatedButton = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`exclude_budget:${transactionId}:${channelId}`)
+        .setLabel(newExcluded ? '已排除預算 ✓' : '不計入預算')
+        .setStyle(newExcluded ? ButtonStyle.Secondary : ButtonStyle.Primary)
+        .setEmoji('🚫'),
+    );
+    await interaction.update({ components: [updatedButton] });
+    await interaction.followUp({
+      content: newExcluded
+        ? `🚫 ID ${transactionId} 已排除於預算計算外（仍記錄在帳本中）。`
+        : `✅ ID ${transactionId} 已重新納入預算計算。`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const [, channelId, ownerUserId] = parts;
   if (
     action !== 'init_confirm'
     && action !== 'init_cancel'

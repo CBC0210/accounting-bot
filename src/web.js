@@ -295,18 +295,22 @@ app.get('/api/channel/:channelId', withReadonlyDb((req, res, db) => {
       WHERE channel_id = ? AND type = 'expense'
     `).get(channelId);
     
-    const balance = (incomeRow?.total || 0) - (expenseRow?.total || 0);
+    const totalIncome = Number(incomeRow?.total || 0);
+    const totalExpense = Number(expenseRow?.total || 0);
+    const balance = totalIncome - totalExpense;
     const settingsRow = db.prepare(`
       SELECT type, user_title, name
       FROM channel_settings
       WHERE channel_id = ?
     `).get(channelId) || {};
-    
+
     res.json({
       channelId,
       ledgerName: getLedgerDisplayNameFromSettingsRow(settingsRow),
       ledgerType: String(settingsRow?.type || 'personal'),
       balance,
+      totalIncome,
+      totalExpense,
       transactions
     });
   } catch (error) {
@@ -593,7 +597,8 @@ app.get('/api/channel/:channelId/analytics/month', withReadonlyDb((req, res, db)
   const totals = db.prepare(`
     SELECT
       COALESCE(SUM(CASE WHEN type='income' THEN amount END), 0) AS income_total,
-      COALESCE(SUM(CASE WHEN type='expense' THEN amount END), 0) AS expense_total
+      COALESCE(SUM(CASE WHEN type='expense' THEN amount END), 0) AS expense_total,
+      COALESCE(SUM(CASE WHEN type='expense' AND (exclude_from_budget IS NULL OR exclude_from_budget=0) THEN amount END), 0) AS budget_expense_total
     FROM transactions
     WHERE channel_id = ?
       AND timestamp >= ?
@@ -630,6 +635,7 @@ app.get('/api/channel/:channelId/analytics/month', withReadonlyDb((req, res, db)
       income: Number(totals?.income_total || 0),
       expense: Number(totals?.expense_total || 0),
       net: Number(totals?.income_total || 0) - Number(totals?.expense_total || 0),
+      budgetExpense: Number(totals?.budget_expense_total || 0),
     },
     expenseByCategory: expenseByCategory.map((row) => ({ category: row.category || '未分類', total: Number(row.total || 0) })),
     incomeByCategory: incomeByCategory.map((row) => ({ category: row.category || '未分類', total: Number(row.total || 0) })),
@@ -669,6 +675,29 @@ app.get('/api/channel/:channelId/settlements', withReadonlyDb((req, res, db) => 
       generatedAt: row.generated_at || row.created_at || null,
     })),
   });
+}));
+
+// API: 切換單筆交易是否排除於預算
+app.patch('/api/channel/:channelId/transactions/:id/exclude-budget', withWritableDb((req, res, db) => {
+  const { channelId, id } = req.params;
+  const existing = db.prepare(`
+    SELECT id, exclude_from_budget FROM transactions WHERE id = ? AND channel_id = ?
+  `).get(Number(id), channelId);
+
+  if (!existing) {
+    res.status(404).json({ error: '找不到該筆交易' });
+    return;
+  }
+
+  const exclude = req.body?.exclude !== undefined
+    ? Boolean(req.body.exclude)
+    : existing.exclude_from_budget !== 1;
+
+  db.prepare(`
+    UPDATE transactions SET exclude_from_budget = ? WHERE id = ? AND channel_id = ?
+  `).run(exclude ? 1 : 0, Number(id), channelId);
+
+  res.json({ success: true, id: Number(id), exclude_from_budget: exclude ? 1 : 0 });
 }));
 
 // API: 轉移單筆交易到另一個頻道

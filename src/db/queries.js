@@ -191,6 +191,20 @@ function getTransactions(userId, limit = 10) {
   `, [userId, limit]);
 }
 
+function setTransactionExcludeFromBudget(channelId, transactionId, exclude) {
+  run(`
+    UPDATE transactions
+    SET exclude_from_budget = ?
+    WHERE id = ? AND channel_id = ?
+  `, [exclude ? 1 : 0, transactionId, channelId]);
+}
+
+function getTransactionById(channelId, transactionId) {
+  return get(`
+    SELECT * FROM transactions WHERE id = ? AND channel_id = ?
+  `, [transactionId, channelId]);
+}
+
 function getChannelMonthlyExpense(channelId, now = new Date()) {
   // 使用本地時區月界線，與 Dashboard 月份查詢一致
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
@@ -203,6 +217,7 @@ function getChannelMonthlyExpense(channelId, now = new Date()) {
       AND type = 'expense'
       AND timestamp >= ?
       AND timestamp < ?
+      AND (exclude_from_budget IS NULL OR exclude_from_budget = 0)
   `, [channelId, monthStart.toISOString(), nextMonthStart.toISOString()]);
 
   return row ? Number(row.total) : 0;
@@ -252,6 +267,7 @@ function getChannelMonthlyExpenseByCategory(channelId, category, now = new Date(
       AND category = ?
       AND timestamp >= ?
       AND timestamp < ?
+      AND (exclude_from_budget IS NULL OR exclude_from_budget = 0)
   `, [channelId, String(category || ''), monthStart.toISOString(), nextMonthStart.toISOString()]);
   return row ? Number(row.total) : 0;
 }
@@ -266,6 +282,7 @@ function getChannelTodayExpense(channelId, now = new Date()) {
       AND type = 'expense'
       AND timestamp >= ?
       AND timestamp < ?
+      AND (exclude_from_budget IS NULL OR exclude_from_budget = 0)
   `, [channelId, dayStart.toISOString(), nextDayStart.toISOString()]);
   return row ? Number(row.total) : 0;
 }
@@ -563,4 +580,6 @@ module.exports = {
   getChannelCategoryBreakdown,
   getChannelDailyMetricSeries,
   getChannelTransactionsInRange,
+  setTransactionExcludeFromBudget,
+  getTransactionById,
 };
