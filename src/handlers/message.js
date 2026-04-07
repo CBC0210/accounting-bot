@@ -1379,7 +1379,7 @@ async function handleSetupConversation(message, setupState, llmDecision, content
 function normalizeDecisionToTransaction(decision, allowedCategories = [], content = '', fallbackTimestampIso = null, userCategoryRules = []) {
   if (!decision || typeof decision.amount !== 'number') return null;
   const rawAmount = Number(decision.amount);
-  if (!Number.isFinite(rawAmount) || rawAmount === 0) return null;
+  if (!Number.isFinite(rawAmount)) return null;
   const amount = Math.round(Math.abs(rawAmount));
   const type = inferTransactionTypeFromContext({
     explicitType: decision.type,

@@ -252,7 +252,7 @@ async function parseWithLLM(content) {
     const match = response && response.match(/\{[\s\S]*\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);
-      if (parsed.amount) {
+      if (typeof parsed.amount === 'number' && Number.isFinite(parsed.amount)) {
         return {
           amount: parsed.amount,
           type: parsed.type || 'expense',
@@ -346,7 +346,7 @@ async function parseTransactionFromImageWithLLM(imageUrl, context = {}) {
     const text = getTextFromAnthropicContent(data?.content);
     const parsed = safeParseJsonFromText(text || '');
     if (!parsed || !parsed.is_transaction) return null;
-    if (typeof parsed.amount !== 'number' || parsed.amount <= 0) return null;
+    if (typeof parsed.amount !== 'number' || !Number.isFinite(parsed.amount) || parsed.amount < 0) return null;
 
     return {
       amount: parsed.amount,
