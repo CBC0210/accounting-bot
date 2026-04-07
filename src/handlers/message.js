@@ -3493,7 +3493,7 @@ function normalizeLlmManagementUpdates(updates, allowedCategories = []) {
   if (!updates || typeof updates !== 'object') return {};
   const normalized = {};
   const amount = Number(updates.amount);
-  if (Number.isFinite(amount) && amount > 0) normalized.amount = Math.round(amount);
+  if (Number.isFinite(amount) && amount >= 0) normalized.amount = Math.round(amount);
   const typeText = String(updates.type || '').toLowerCase();
   if (typeText === 'income' || typeText === 'expense') normalized.type = typeText;
   if (typeof updates.note === 'string') normalized.note = String(updates.note).trim();
@@ -3557,13 +3557,13 @@ function extractTransactionUpdatesFromText(text, allowedCategories = []) {
   const amountMatch = text.match(/金額(?:改成|改為|為)?\s*([+-]?\d+(?:\.\d+)?)/);
   if (amountMatch) {
     const amount = Number(amountMatch[1]);
-    if (Number.isFinite(amount) && amount > 0) updates.amount = Math.round(amount);
+    if (Number.isFinite(amount) && amount >= 0) updates.amount = Math.round(amount);
   }
-  if (!updates.amount) {
+  if (updates.amount === undefined) {
     const quickAmountMatch = text.match(/(?:改成|改為|更正成|更正為|修正成|修正為)\s*([+-]?\d+(?:\.\d+)?)/);
     if (quickAmountMatch) {
       const amount = Number(quickAmountMatch[1]);
-      if (Number.isFinite(amount) && amount > 0) updates.amount = Math.round(amount);
+      if (Number.isFinite(amount) && amount >= 0) updates.amount = Math.round(amount);
     }
   }
 
@@ -3697,7 +3697,7 @@ function executeTransactionActionById(channelId, txId, intentLike) {
 
   const updates = intentLike.updates || {};
   const nextAmount = Number(updates.amount ?? before.amount);
-  if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+  if (!Number.isFinite(nextAmount) || nextAmount < 0) {
     return { success: false, error: '更新金額無效' };
   }
   const nextCategory = String(updates.category ?? before.category ?? '未分類');

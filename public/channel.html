@@ -2374,8 +2374,8 @@
       if (!editingTransactionId) return;
       const amountText = String(document.getElementById('editAmount').value || '').trim().replace(/[,\s]/g, '');
       const amountValue = Number(amountText);
-      if (!Number.isFinite(amountValue) || amountValue <= 0) {
-        document.getElementById('editTxStatus').textContent = '金額格式錯誤，請輸入正數';
+      if (!Number.isFinite(amountValue) || amountValue < 0) {
+        document.getElementById('editTxStatus').textContent = '金額格式錯誤，請輸入 0 或正數';
         return;
       }
       const category = String(document.getElementById('editCategory').value || '').trim() || '未分類';
