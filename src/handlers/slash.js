@@ -20,6 +20,7 @@ const { generateResponse } = require('../llm/generator');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { updateChannelBalanceName } = require('./channel');
 const { restoreLatestStep } = require('../services/undo-step');
+const { paginationSessions, buildPageRow } = require('./message');
 
 async function handleSlashCommand(interaction) {
   const { commandName, options, channel, user } = interaction;
@@ -527,6 +528,31 @@ async function handleComponentInteraction(interaction) {
   if (!interaction.isButton()) return;
   const parts = String(interaction.customId || '').split(':');
   const action = parts[0];
+
+  // 分頁翻頁按鈕
+  if (action.startsWith('page_')) {
+    const sessionId = action;
+    const direction = parts[1];
+    const session = paginationSessions.get(sessionId);
+    if (!session) {
+      await interaction.reply({ content: '此分頁已過期，請重新查詢。', ephemeral: true });
+      return;
+    }
+    if (interaction.user.id !== session.ownerUserId) {
+      await interaction.reply({ content: '只有發起查詢的人可以操作這個分頁。', ephemeral: true });
+      return;
+    }
+    if (direction === 'prev') {
+      session.currentIndex = Math.max(0, session.currentIndex - 1);
+    } else if (direction === 'next') {
+      session.currentIndex = Math.min(session.total - 1, session.currentIndex + 1);
+    }
+    await interaction.update({
+      embeds: [session.embeds[session.currentIndex]],
+      components: [buildPageRow(sessionId, session.currentIndex, session.total)],
+    });
+    return;
+  }
 
   // 排除/納入預算按鈕
   if (action === 'exclude_budget') {

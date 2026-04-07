@@ -50,6 +50,25 @@ const {
   resolveCategoryAgainstAllowed,
 } = require('../utils/category-rules');
 
+// 分頁會話：由 handleComponentInteraction (slash.js) 統一處理
+const paginationSessions = new Map();
+const PAGINATION_SESSION_TTL = 30 * 60 * 1000; // 30 分鐘
+
+function buildPageRow(sessionId, index, total) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${sessionId}:prev`)
+      .setLabel('上一頁')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(index <= 0),
+    new ButtonBuilder()
+      .setCustomId(`${sessionId}:next`)
+      .setLabel('下一頁')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(index >= total - 1),
+  );
+}
+
 const DEFAULT_ALLOWED_CATEGORIES = [
   '餐飲', '交通', '購物', '娛樂', '房租/帳單', '住宿', '日常生活', '醫療', '教育', '投資', '禮物', '其他',
   '薪資', '兼職', '被動收入', '紅包', '生活費',
@@ -2652,12 +2671,13 @@ function buildRangeEntriesEmbeds(rangeLabel, transactions, metricLabel, category
     return `ID ${tx.id}｜${month}/${day} ${hh}:${mm}｜${tx.category}｜${sign}NT$ ${Number(tx.amount || 0).toLocaleString()}｜${note}`;
   });
 
+  const MAX_LINES_PER_PAGE = 15;
   const pages = [];
   let current = [];
   let currentLen = 0;
   lines.forEach((line) => {
     const nextLen = currentLen + line.length + 1;
-    if (nextLen > 3500 && current.length) {
+    if ((nextLen > 3500 || current.length >= MAX_LINES_PER_PAGE) && current.length) {
       pages.push(current);
       current = [line];
       currentLen = line.length + 1;
@@ -2684,58 +2704,14 @@ async function sendPagedDetailEmbeds(channel, ownerUserId, embeds) {
     return;
   }
   const sessionId = `page_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  let currentIndex = 0;
   const total = validEmbeds.length;
-  const buildRow = (index) => new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`${sessionId}:prev`)
-      .setLabel('上一頁')
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(index <= 0),
-    new ButtonBuilder()
-      .setCustomId(`${sessionId}:next`)
-      .setLabel('下一頁')
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(index >= total - 1)
-  );
 
-  const sent = await channel.send({
-    embeds: [validEmbeds[currentIndex]],
-    components: [buildRow(currentIndex)],
-  });
+  paginationSessions.set(sessionId, { embeds: validEmbeds, currentIndex: 0, total, ownerUserId });
+  setTimeout(() => paginationSessions.delete(sessionId), PAGINATION_SESSION_TTL);
 
-  const collector = sent.createMessageComponentCollector({
-    time: 5 * 60 * 1000,
-  });
-
-  collector.on('collect', async (interaction) => {
-    if (!interaction.customId.startsWith(`${sessionId}:`)) return;
-    if (interaction.user.id !== ownerUserId) {
-      await interaction.reply({
-        content: '只有發起查詢的人可以操作這個分頁。',
-        ephemeral: true,
-      });
-      return;
-    }
-
-    if (interaction.customId.endsWith(':prev')) {
-      currentIndex = Math.max(0, currentIndex - 1);
-    } else if (interaction.customId.endsWith(':next')) {
-      currentIndex = Math.min(total - 1, currentIndex + 1);
-    }
-
-    await interaction.update({
-      embeds: [validEmbeds[currentIndex]],
-      components: [buildRow(currentIndex)],
-    });
-  });
-
-  collector.on('end', async () => {
-    try {
-      await sent.edit({ components: [] });
-    } catch (_) {
-      // 訊息可能已被刪除，忽略即可
-    }
+  await channel.send({
+    embeds: [validEmbeds[0]],
+    components: [buildPageRow(sessionId, 0, total)],
   });
 }
 
@@ -4182,4 +4158,4 @@ function extractOutgoingText(payload) {
   return normalizeDialogueContent(parts.join(' | '));
 }
 
-module.exports = { handleMessage };
+module.exports = { handleMessage, paginationSessions, buildPageRow };
