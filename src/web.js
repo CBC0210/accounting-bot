@@ -15,6 +15,12 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
+function normalizeToUtcIso(rawTs) {
+  if (!rawTs) return new Date().toISOString();
+  const d = new Date(String(rawTs));
+  return Number.isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString();
+}
+
 function normalizeBackupLimit(value, fallback = 30) {
   const raw = Number(value);
   if (!Number.isFinite(raw)) return fallback;
@@ -87,7 +93,7 @@ function parseTransactionsCsv(csvText) {
       obj[name] = cols[idx] ?? '';
     });
     return {
-      timestamp: obj.timestamp || new Date().toISOString(),
+      timestamp: normalizeToUtcIso(obj.timestamp),
       type: obj.type === 'income' ? 'income' : 'expense',
       amount: Number(obj.amount) || 0,
       category: obj.category || '未分類',
@@ -545,7 +551,7 @@ app.put('/api/channel/:channelId/transactions/:id', withWritableDb((req, res, db
     String(category || '未分類'),
     String(note || ''),
     type === 'income' ? 'income' : 'expense',
-    String(timestamp || new Date().toISOString()),
+    normalizeToUtcIso(timestamp),
     Number(id),
     channelId
   );
@@ -881,7 +887,7 @@ app.post('/api/channel/:channelId/import', withWritableDb((req, res, db) => {
       String(tx.category || '未分類'),
       String(tx.note || ''),
       tx.type === 'income' ? 'income' : 'expense',
-      String(tx.timestamp || new Date().toISOString())
+      normalizeToUtcIso(tx.timestamp)
     );
     importedCount += 1;
   });

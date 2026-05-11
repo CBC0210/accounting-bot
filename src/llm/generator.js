@@ -360,6 +360,20 @@ async function parseTransactionFromImageWithLLM(imageUrl, context = {}) {
   }
 }
 
+const CONFIDENCE_THRESHOLD = 0.5;
+const QUERY_ANALYSIS_KEYWORDS = [
+  '分析', '比較', '對比', '統計', '報表', '報告',
+  '多少', '占比', '比例', '最多', '最少', '最高', '最低',
+  '趨勢', '走勢', '日/月/週', '花了', '賺了', '支出', '收入',
+  '這個月', '上個月', '本月', '上月', '這週', '上週',
+  '今天', '昨天', '本週', '上週', '最近', '一段時間',
+];
+
+function containsQueryAnalysisKeywords(content) {
+  const text = String(content || '').toLowerCase();
+  return QUERY_ANALYSIS_KEYWORDS.some((kw) => text.includes(kw.toLowerCase()));
+}
+
 async function decideActionWithLLM(content, context = {}) {
   const {
     isSetupMode = false,
@@ -391,7 +405,7 @@ async function decideActionWithLLM(content, context = {}) {
 - "record_transaction": 使用者是在記帳（收入/支出）
 - "shared_ledger_transfer": 使用者要把錢轉入共同帳本（個人→共同）
 - "shared_ledger_payout": 使用者要從共同帳本提領/轉回個人帳本（共同→個人）
-- "query_analysis": 使用者想查詢/比較區間資料並要分析結論
+- "query_analysis": 使用者想查詢/比較區間資料並要分析結論。當訊息包含分析意圖關鍵字（如：分析、比較、統計、多少、占比、趨勢、花了多少、賺了多少、這週/本月/上月的支出收入等）時，應優先判定為 query_analysis。
 - "chat": 一般聊天
 
 上下文:
@@ -433,12 +447,78 @@ ${content}
 3) 禁止自創分類名稱。
 4) 若 action=set_category_rule，請填 rule_keyword 與 rule_category（皆從 allowedCategories 選分類名稱）；若資訊不足則 needs_clarification=true。`
   );
-  const parsed = safeParseJsonFromText(response);
-  if (!parsed || !parsed.action) return null;
+
+  let parsed = safeParseJsonFromText(response);
+
+  if (!parsed || !parsed.action) {
+    if (containsQueryAnalysisKeywords(content)) {
+      return {
+        action: 'query_analysis',
+        confidence: 0.5,
+        needsClarification: false,
+        followUpQuestion: null,
+        amount: null,
+        reminderTime: null,
+        gender: null,
+        title: null,
+        type: null,
+        category: null,
+        note: null,
+        metric: 'expense',
+        periodA: null,
+        periodB: null,
+        ruleKeyword: null,
+        ruleCategory: null,
+      };
+    }
+    return {
+      action: 'chat',
+      confidence: 0,
+      needsClarification: false,
+      followUpQuestion: null,
+      amount: null,
+      reminderTime: null,
+      gender: null,
+      title: null,
+      type: null,
+      category: null,
+      note: null,
+      metric: null,
+      periodA: null,
+      periodB: null,
+      ruleKeyword: null,
+      ruleCategory: null,
+    };
+  }
+
+  const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : null;
+  if (confidence !== null && confidence < CONFIDENCE_THRESHOLD) {
+    if (containsQueryAnalysisKeywords(content)) {
+      return {
+        action: 'query_analysis',
+        confidence: 0.5,
+        needsClarification: false,
+        followUpQuestion: null,
+        amount: null,
+        reminderTime: null,
+        gender: null,
+        title: null,
+        type: null,
+        category: null,
+        note: null,
+        metric: 'expense',
+        periodA: null,
+        periodB: null,
+        ruleKeyword: null,
+        ruleCategory: null,
+      };
+    }
+    return null;
+  }
 
   return {
     action: parsed.action,
-    confidence: typeof parsed.confidence === 'number' ? parsed.confidence : null,
+    confidence,
     needsClarification: Boolean(parsed.needs_clarification),
     followUpQuestion: typeof parsed.follow_up_question === 'string' ? parsed.follow_up_question : null,
     amount: typeof parsed.amount === 'number' ? parsed.amount : null,

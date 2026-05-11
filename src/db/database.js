@@ -242,6 +242,28 @@ async function initDatabase() {
       AND instr(timestamp, 'T') = 0
   `);
 
+  // 修正非 UTC 格式的 timestamp（Web UI 存入的本地時間字串，如 2026-04-13T14:30:00）
+  // 在 Asia/Taipei 環境下，new Date('2026-04-13T14:30:00') 會被視為台北本地時間，toISOString() 轉為正確的 UTC
+  {
+    const stmt = db.prepare(`
+      SELECT id, timestamp FROM transactions
+      WHERE timestamp IS NOT NULL
+        AND timestamp NOT LIKE '%Z'
+        AND timestamp NOT LIKE '%+%'
+    `);
+    const rows = [];
+    while (stmt.step()) {
+      rows.push(stmt.getAsObject());
+    }
+    stmt.free();
+    for (const row of rows) {
+      const d = new Date(String(row.timestamp || ''));
+      if (!Number.isNaN(d.getTime())) {
+        db.run(`UPDATE transactions SET timestamp = ? WHERE id = ?`, [d.toISOString(), Number(row.id)]);
+      }
+    }
+  }
+
   db.run(`DROP TRIGGER IF EXISTS trg_tx_insert_event`);
   db.run(`DROP TRIGGER IF EXISTS trg_tx_update_event`);
   db.run(`DROP TRIGGER IF EXISTS trg_tx_delete_event`);
